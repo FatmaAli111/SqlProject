@@ -43,7 +43,7 @@ create table UserAccounts (
 userId int identity(1,1) primary key,
 userName nvarchar(30) not null unique,
 userPassword nvarchar(30) not null,
-userRole nvarchar(30) not null check (userrole in ('student','instructor','manager','admin'))
+userRole nvarchar(30) not null check (userRole in ('student','instructor','manager','admin'))
 );
 
 create table Student (
