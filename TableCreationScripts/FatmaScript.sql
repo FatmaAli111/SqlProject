@@ -5,13 +5,13 @@ ExamID int primary Key identity(1,1),
 StartTime time not null,
 EndTime time  not null,
 [Day] date ,
-CourseID int,
-InstructorID int,
+CourseID int not null,
+InstructorID int not null,
 foreign key (CourseID) references Course(CourseID),
 foreign key (InstructorID) references Instructor(InstructorID),
 constraint chkExamTime check(EndTime >StartTime),
-constraint chkExamTotalTime check(DateDiff(minute, StartTime, EndTime) >=60)
-
+constraint chkExamTotalTime check(DateDiff(minute, StartTime, EndTime) >=60),
+constraint chkSameDate check(cast(StartTime as datetime)<cast(EndTime as datetime))
 )
 create table ExamAllowanceOptions (
 OptionText varchar(20),
@@ -52,12 +52,13 @@ Email nvarchar(20) unique,
 CourseID int,
 ManagerID int,
 foreign key (ManagerID) references Instructor(InstructorID),
-foreign key (CourseID) references Course(CourseID)
+foreign key (CourseID) references Course(CourseID),
+constraint chkManagerSelf check(ManagerID<>InstructorID)
 
 )
 create type PhoneUDD from varchar(11) not null 
 create  table InstructorPhone(
-phone  PhoneUDD CHECK (phone LIKE '01[0-9]%'),
+phone  PhoneUDD CHECK (phone Like '01[0-9]%'),
 InstructorID int,
 
 foreign key (InstructorID) references Instructor(InstructorID),
