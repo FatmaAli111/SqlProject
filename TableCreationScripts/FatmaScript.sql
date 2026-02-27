@@ -7,7 +7,7 @@ EndTime time  not null,
 [Day] date ,
 CourseID int not null,
 InstructorID int not null,
-ExamTotalTime as datediff(minute,EndTime,StartTime) persisted,--stored permenantly
+ExamTotalTime as datediff(minute,StartTime,EndTime) persisted,--stored permenantly
 
 foreign key (CourseID) references Course(CourseID),
 foreign key (InstructorID) references Instructor(InstructorID),
@@ -51,7 +51,7 @@ foreign key (QuestionID) references QuestionPool(QuestionID)
 create table Instructor(
 InstructorID int primary key identity(1,1),
 FullName varchar(20) not null ,
-Email nvarchar(20) unique,
+Email nvarchar(30) unique,
 CourseID int,
 ManagerID int,
 foreign key (ManagerID) references Instructor(InstructorID),
