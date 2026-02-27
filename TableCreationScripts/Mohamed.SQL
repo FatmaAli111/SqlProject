@@ -17,9 +17,9 @@ constraint CHK_COURSE_DEGREE check	([Min Degree] >= 0 and [Max Degree] > [Min De
 create table QuestionPool
 (
 QuestionID int identity(1,1) not null,
-[Question Text] nvarchar(max) not null,
-[Question Type] nvarchar(4) not null,
-[Correct Answer] nvarchar(max) null,
+QuestionText nvarchar(max) not null,
+QuestionType nvarchar(4) not null,
+CorrectAnswer nvarchar(max) null,
 CourseID int not null,
 
 constraint QuestionPool_PK Primary key (QuestionID),
