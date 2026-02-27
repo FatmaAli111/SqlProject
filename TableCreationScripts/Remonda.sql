@@ -59,7 +59,7 @@ constraint fk_student_track foreign key (trackId) references Track(trackId)
 );
 
 create table StudentPhone (
-phone varchar(11) not null,
+phone PhoneUDD varchar(11) not null CHECK (phone Like '01[0-9]%'),
 studentId int not null,
 
 constraint pk_studentphone primary key (studentId, phone),
