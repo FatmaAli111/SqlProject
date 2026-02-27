@@ -42,7 +42,7 @@ constraint fk_intaketrack_track foreign key (trackId) references Track(trackId)
 create table UserAccounts (
 userId int identity(1,1) primary key,
 userName nvarchar(30) not null unique,
-userPassword nvarchar(100) not null,
+userPassword nvarchar(30) not null,
 userRole nvarchar(30) not null check (userrole in ('student','instructor','manager','admin'))
 );
 
@@ -50,7 +50,7 @@ create table Student (
 studentId int identity(1,1) primary key,
 fname nvarchar(30) not null,
 lname nvarchar(30),
-email nvarchar(100) unique,
+email nvarchar(30) unique,
 userId int not null,
 trackId int not null,
 
