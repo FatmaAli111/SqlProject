@@ -7,11 +7,14 @@ EndTime time  not null,
 [Day] date ,
 CourseID int not null,
 InstructorID int not null,
+ExamTotalTime as datediff(minute,EndTime,StartTime) persisted,--stored permenantly
+
 foreign key (CourseID) references Course(CourseID),
 foreign key (InstructorID) references Instructor(InstructorID),
 constraint chkExamTime check(EndTime >StartTime),
 constraint chkExamTotalTime check(DateDiff(minute, StartTime, EndTime) >=60),
 constraint chkSameDate check(cast(StartTime as datetime)<cast(EndTime as datetime))
+
 )
 create table ExamAllowanceOptions (
 OptionText varchar(20),
@@ -64,3 +67,4 @@ InstructorID int,
 foreign key (InstructorID) references Instructor(InstructorID),
 primary key(phone,InstructorID)
 )
+--derived attrubutes
