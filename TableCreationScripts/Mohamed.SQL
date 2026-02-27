@@ -14,12 +14,12 @@ constraint CHK_COURSE_DEGREE check	([Min Degree] >= 0 and [Max Degree] > [Min De
 
 ----------------------------------------------------------------------------------------------------------
 
-create table [Question Pool] 
+create table QuestionPool
 (
 QuestionID int identity(1,1) not null,
 [Question Text] nvarchar(max) not null,
-[Question Type] nvarchar(20) not null,
-[Correct Answer] nvarchar(20) not null,
+[Question Type] nvarchar(4) not null,
+[Correct Answer] nvarchar(max) null,
 CourseID int not null,
 
 constraint QuestionPool_PK Primary key (QuestionID),
@@ -43,7 +43,7 @@ constraint Fk_Enrollments_Student foreign key (StudentID) references STUDENT(Stu
 
 ---------------------------------------------------------------------------------------------------------
 
-create table [Instructor Courses]
+create table InstructorCourses
 (
 InstructorID int not null,
 CourseID int not null,
