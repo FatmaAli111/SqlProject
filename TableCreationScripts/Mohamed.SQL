@@ -38,7 +38,7 @@ StudentID int not null,
 CourseID int not null,
 constraint PK_Enrollments primary key (CourseID, StudentID),
 constraint FK_Enrollments_Course foreign key (CourseID) references COURSE(CourseID) on delete cascade,
-constraint Fk_Enrollments_Student foreign key (StudentID) references STUDENTS(StudentID) on delete cascade
+constraint Fk_Enrollments_Student foreign key (StudentID) references STUDENT(StudentID) on delete cascade
 );
 
 ---------------------------------------------------------------------------------------------------------
