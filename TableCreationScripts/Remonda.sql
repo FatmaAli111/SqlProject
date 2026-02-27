@@ -1,71 +1,67 @@
-create table Branch(
-BranchID int primary key,
-BranchName nvarchar(30) not null unique
-)
+create table Branch (
+branchId int identity(1,1) primary key,
+branchName nvarchar(30) not null unique
+);
 
-create table Intake(
-IntakeID int primary key,
-IntakeName nvarchar(30) not null
-)
+create table Intake (
+intakeId int identity(1,1) primary key,
+intakeName nvarchar(30) not null
+);
 
-create table BranchIntake(
-BranchID int not null,
-IntakeID int not null,
-constraint BranchFK foreign key (BranchID) references Branch(BranchID),
-constraint IntakeFK foreign key (IntakeID) references Intake(IntakeID),
-constraint BranchIntakePK primary key (BranchID, IntakeID)
-)
+create table BranchIntake (
+branchId int not null,
+intakeId int not null,
 
-create table Department(
-DepartmentID int primary key,
-DepartmentName nvarchar(30) not null
-)
+constraint pk_branchintake primary key (branchId, intakeId),
+constraint fk_branchintake_branch foreign key (branchId) references Branch(branchId),
+constraint fk_branchintake_intake foreign key (intakeId) references Intake(intakeId)
+);
 
-create table Track(
-TrackID int primary key,
-TrackName nvarchar(30) not null,
-DepartmentID int not null,
+create table Department (
+departmentId int identity(1,1) primary key,
+departmentName nvarchar(30) not null
+);
 
-constraint DepartmentFK foreign key (DepartmentID) references Department(DepartmentID)
-)
+create table Track (
+trackId int identity(1,1) primary key,
+trackName nvarchar(30) not null,
+departmentId int not null,
 
--- ????? ?? ??? ???? ?? departmentId ? ???? ?? ? ?? ???????? ???? ????? ? intake ????? ????? ?? ??? ???? ???? ??? ?????? intake46 ????? ??? ???? .net ???
-create table IntakeTrack(
-IntakeID int not null,
-TrackID int not null,
-constraint TrackFK foreign key (TrackID) references Track(TrackID),
-constraint IntakeFK foreign key (IntakeID) references Intake(IntakeID),
-constraint IntakeTrackPK primary key (TrackID, IntakeID)
-)
+constraint fk_track_department foreign key (departmentId) references Department(departmentId)
+);
 
-create table UserAccounts(
-UserID int primary key,
-UserName nvarchar(30) not null unique,
-UserPassword nvarchar(30) not null,
-UserRole nvarchar(30) not null,
+create table IntakeTrack (
+ intakeId int not null,
+ trackId int not null,
 
-constraint UserRoleCK
-check (UserRole IN ('Student','Instructor','Manager','Admin'))
-)
+constraint pk_intaketrack primary key (intakeId, trackId),
+constraint fk_intaketrack_intake foreign key (intakeId) references Intake(intakeId),
+constraint fk_intaketrack_track foreign key (trackId) references Track(trackId)
+);
 
-create table student(
-StudentID int primary key,
-FName nvarchar(30) not null,
-LName nvarchar(30),
-Email nvarchar(30),
-UserID int not null,
-TrackID int not null,
+create table UserAccounts (
+userId int identity(1,1) primary key,
+userName nvarchar(30) not null unique,
+userPassword nvarchar(30) not null,
+userRole nvarchar(30) not null check (userrole in ('student','instructor','manager','admin'))
+);
 
-constraint UserFK foreign key (UserID) references UserAccounts(UserID),
-constraint TrackFK foreign key (TrackID) references Track(TrackID)
-)
+create table Student (
+studentId int identity(1,1) primary key,
+fname nvarchar(30) not null,
+lname nvarchar(30),
+email nvarchar(30) unique,
+userId int not null,
+trackId int not null,
 
-create table StudentPhone(
-phone varchar(11),
-StudentID int,
-constraint StudentFK foreign key (StudentID) references Student(StudentID),
+constraint fk_student_useraccounts foreign key (userId) references UserAccounts(userId),
+constraint fk_student_track foreign key (trackId) references Track(trackId)
+);
 
-constraint StudentPhonePK primary key (StudentID, phone)
-)
+create table StudentPhone (
+phone PhoneUDD varchar(11) not null CHECK (phone Like '01[0-9]%'),
+studentId int not null,
 
-
+constraint pk_studentphone primary key (studentId, phone),
+constraint fk_studentphone_student foreign key (studentId) references Student(studentId)
+);
