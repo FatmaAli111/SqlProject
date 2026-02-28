@@ -85,19 +85,93 @@ end catch
 end 
 
 --GetAllQuestions
-create proc sp_Instructor_Question_GetAllQuestionsWithCourseName
+alter proc sp_Instructor_Question_GetAllQuestionsWithCourseName
 as begin
 select crs.[Course Name],QuestionText,QuestionType,CorrectAnswer from QuestionPool as qs
 inner join Course as crs
 on qs.CourseID=crs.CourseID
+order by 1
 
 end
 
 --### 4. Exam Entity
 
 --sp_Instructor_Exam_Add
+alter proc sp_Instructor_Exam_Add @ExamName varchar(20),@ExamType varchar(10),
+@Examstarttime time,@ExamEndtime time ,@ExamDay date,@courseRef int ,@instructorRef int
+as begin 
+begin try 
+if(@ExamType not in ('Corrective','Exam'))
+throw 51012,'ExamType should be one of (Corrective,Exam)',1;
+if(@Examstarttime>@ExamEndtime)
+throw 51013,'ExamStartTime should be less than ExamEndTime',1;
+if(datediff(minute,@Examstarttime,@ExamEndtime)<60)
+throw 51013,'TotalTime should be Greater than or an hour',1;
+if(@courseRef is null)
+throw 51014,'courseRef shouldn''t be null',1;
+else 
+begin 
+if not exists(select courseid from Course where
+CourseID=@courseRef
+)
+throw 51015,'Course you Trieng to reference is not found',1;
+
+end
+if(@instructorRef is null)
+throw 51014,'instructorRef shouldn''t be null',1;
+else 
+begin 
+if not exists(select instructorid from Instructor where
+InstructorID=@instructorRef
+)
+throw 51015,'instructor you Trying to reference is not found',1;
+end
+insert into exam(Name,Type,StartTime,EndTime,[Day],CourseID,InstructorID)
+values(@ExamName,@ExamType,@Examstarttime,@ExamEndtime,@ExamDay,@courseRef,@instructorRef)
+end try
+begin catch 
+throw;
+end catch
+end
+
 --sp_Instructor_Exam_GetByCourseId
+create proc sp_Instructor_Exam_GetByCourseId @RefCourseId int
+as begin
+set nocount on;
+begin try
+if not exists(select 1 from Exam where CourseID=@RefCourseId)
+throw 51016,'RefCourseID is not Found',1;
+select *,crs.[Course Name],ins.FullName from Exam as ex
+inner join Course as crs
+on crs.CourseID=ex.CourseID
+inner join Instructor as ins
+on ex.InstructorID=ins.InstructorID
+where crs.CourseID=@RefCourseId
+end try 
+begin catch
+throw;
+end catch
+end
 --sp_Instructor_Exam_GetById
+create proc sp_Instructor_Exam_GetById @id int
+as begin
+begin try 
+
+if not exists(select 1 from Exam where ExamID=@id)
+throw 51016,'Exam is not Found',1;
+select *,crs.[Course Name],ins.FullName from Exam as ex
+inner join Course as crs
+on crs.CourseID=ex.CourseID
+inner join Instructor as ins
+on ex.InstructorID=ins.InstructorID
+where ex.ExamID=@id
+end try 
+begin catch
+throw;
+end catch
+end
+
 --sp_Instructor_Exam_Update
 --sp_Instructor_Exam_Delete
+
 
