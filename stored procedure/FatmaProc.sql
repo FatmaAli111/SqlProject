@@ -59,7 +59,7 @@ throw 51002,'Answer Should Has Value',1;
 
 if(@Type='T/F' and @Answer is null)
 throw 51003,'Answer Should Has Value Either True Or False',1;
-update QuestionPool set QuestionText=@Question,QuestionType=@Type,CourseID=@fkCourseID
+update QuestionPool set QuestionText=@Question,QuestionType=@Type,[CorrectAnswer]=@Answer,CourseID=@fkCourseID
 where QuestionID=@QsID
 return 1;
 end try
@@ -75,7 +75,10 @@ as begin
 begin try 
 if not exists(select QuestionID from QuestionPool where QuestionID=@QsID)
 throw 51011,'Question Not Found',1;
-else 
+
+if  exists(select 1 from contain where QuestionID=@QsID)
+throw 51031,'Cannot delete Question: student answers exist',1;
+
 delete from [dbo].[QuestionPool] where QuestionID=@QsID
 return 1;
 end try
@@ -106,25 +109,25 @@ throw 51012,'ExamType should be one of (Corrective,Exam)',1;
 if(@Examstarttime>@ExamEndtime)
 throw 51013,'ExamStartTime should be less than ExamEndTime',1;
 if(datediff(minute,@Examstarttime,@ExamEndtime)<60)
-throw 51013,'TotalTime should be Greater than or an hour',1;
+throw 510125,'TotalTime should be Greater than or an hour',1;
 if(@courseRef is null)
-throw 51014,'courseRef shouldn''t be null',1;
+throw 51026,'courseRef shouldn''t be null',1;
 else 
 begin 
 if not exists(select courseid from Course where
 CourseID=@courseRef
 )
-throw 51015,'Course you Trieng to reference is not found',1;
+throw 51027,'Course you Trieng to reference is not found',1;
 
 end
 if(@instructorRef is null)
-throw 51014,'instructorRef shouldn''t be null',1;
+throw 51028,'instructorRef shouldn''t be null',1;
 else 
 begin 
 if not exists(select instructorid from Instructor where
 InstructorID=@instructorRef
 )
-throw 51015,'instructor you Trying to reference is not found',1;
+throw 51029,'instructor you Trying to reference is not found',1;
 end
 insert into exam(Name,Type,StartTime,EndTime,[Day],CourseID,InstructorID)
 values(@ExamName,@ExamType,@Examstarttime,@ExamEndtime,@ExamDay,@courseRef,@instructorRef)
@@ -155,8 +158,9 @@ end
 --sp_Instructor_Exam_GetById
 create proc sp_Instructor_Exam_GetById @id int
 as begin
-begin try 
+set nocount on;
 
+begin try 
 if not exists(select 1 from Exam where ExamID=@id)
 throw 51016,'Exam is not Found',1;
 select *,crs.[Course Name],ins.FullName from Exam as ex
@@ -172,6 +176,61 @@ end catch
 end
 
 --sp_Instructor_Exam_Update
+create proc sp_Instructor_Exam_Update @id int,@ExamName varchar(20),@ExamType varchar(10),
+@Examstarttime time,@ExamEndtime time ,@ExamDay date,@courseRef int ,@instructorRef int
+as begin 
+set nocount on;
+
+begin try 
+if not exists(select 1 from Exam where ExamID=@id)
+throw 51017,'Exam is not Found',1;
+
+if(@ExamType not in ('Corrective','Exam'))
+throw 51018,'ExamType should be one of (Corrective,Exam)',1;
+
+if(@Examstarttime>@ExamEndtime)
+throw 51019,'ExamStartTime should be less than ExamEndTime',1;
+if(datediff(minute,@Examstarttime,@ExamEndtime)<60)
+throw 51020,'TotalTime should be Greater than or an hour',1;
+if(@courseRef is null)
+throw 51021,'courseRef shouldn''t be null',1;
+ 
+if not exists(select courseid from Course where
+CourseID=@courseRef
+)
+throw 51022,'Course you Trieng to reference is not found',1;
+
+if(@instructorRef is null)
+throw 51023,'instructorRef shouldn''t be null',1;
+ 
+if not exists(select instructorid from Instructor where
+InstructorID=@instructorRef
+)
+throw 51024,'instructor you Trying to reference is not found',1;
+update Exam set Name=@ExamName,Type=@ExamType,
+StartTime=@Examstarttime,EndTime=@ExamEndtime,
+Day=@ExamDay ,CourseID=@courseRef,InstructorID=@instructorRef
+where ExamID=@id
+end try
+begin catch
+throw;
+end catch
+end
 --sp_Instructor_Exam_Delete
 
+create proc sp_Instructor_Exam_Delete @id int
+as begin
+set nocount on;
 
+begin try 
+if not exists(select 1 from Exam where ExamID=@id)
+throw 51030,'Exam is not Found',1;
+if  exists(select 1 from contain where ExamID=@id)
+throw 51031,'Cannot delete Exam: student answers exist',1;
+
+delete from exam where ExamID=@id
+end try
+begin catch
+throw;
+end catch
+end
