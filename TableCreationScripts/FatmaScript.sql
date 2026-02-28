@@ -8,7 +8,6 @@ EndTime time  not null,
 CourseID int not null,
 InstructorID int not null,
 ExamTotalTime as datediff(minute,StartTime,EndTime) persisted,--stored permenantly
-
 foreign key (CourseID) references Course(CourseID),
 foreign key (InstructorID) references Instructor(InstructorID),
 constraint chkExamTime check(EndTime >StartTime),
@@ -67,4 +66,9 @@ InstructorID int,
 foreign key (InstructorID) references Instructor(InstructorID),
 primary key(phone,InstructorID)
 )
---derived attrubutes
+--Edit instructor table
+alter table instructor drop constraint FK__Instructo__Cours__6754599E 
+
+exec sp_rename 'InstructorID','CourseID','UserID'
+
+alter table instructor add constraint FKUserRef foreign key (UserID) references [dbo].[UserAccounts](UserID)
