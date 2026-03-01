@@ -12,9 +12,10 @@ raiserror( 'Exam not found',16,1);
 return;
 end
 
-if NOT EXISTS(select 1 from [dbo].[QuestionPool] where [QuestionID]=@ques_id)
+if NOT EXISTS(select 1 from [dbo].[QuestionPool] where [QuestionID]=@ques_id
+ and CourseID = (select CourseID from Exam where ExamID = @exam_id))
 begin
-raiserror( 'Question not found',16,1);
+raiserror( 'Question does not belong to the exam course',16,1);
 return;
 end
 
@@ -47,7 +48,7 @@ values (@degree,@ques_id,@exam_id)
 print 'Question added to exam successfully';
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
@@ -75,7 +76,7 @@ where [ExamID]=@exam_id and [QuestionID]=@question_id
 print 'Question removed from exam successfully';
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
@@ -117,7 +118,7 @@ where [ExamID]= @exam_id and [QuestionID]= @ques_id
 print 'Question updated successfully';
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
@@ -142,7 +143,7 @@ on C.QuestionID=Q.QuestionID
 where C.ExamID=@exam_id
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
@@ -182,7 +183,7 @@ values (@question_id,@choice_text)
 print 'Choice added to Question successfully';
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end 
 
@@ -204,7 +205,7 @@ where [QuestionID]=@question_id;
 
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
@@ -235,7 +236,7 @@ print 'choice updated successfully';
 
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
@@ -259,7 +260,7 @@ print 'deleted successfully';
 
 end try
 begin catch
-print 'Error : ' + error_message();
+throw;
 end catch
 end
 
