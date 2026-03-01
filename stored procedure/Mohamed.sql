@@ -124,13 +124,16 @@ end
 create proc sp_Manager_Course_Add @CourseName nvarchar(100), @Description nvarchar(max) = null, @MaxDegree int, @MinDegree int
 as
 begin
+
+set nocount on;
+
 	if exists (select 1 from [dbo].[Course] where [Course Name] = @CourseName)
         begin
             raiserror ('a Course with this name already exists.', 16, 1);
             return;
         end
 
-	 if (@MinDegree >= @MinDegree)
+	 if (@MinDegree >= @MaxDegree)
         begin
             raiserror ('min degree must be less than max degree.', 16, 1);
             return;
@@ -164,7 +167,7 @@ set nocount on;
 
 	if not exists (select 1 from [dbo].[Course] where [CourseID] = @CourseID)
 		begin
-		raiserror('There is no Course with this ID', 16,1);
+		raiserror('No course found with the specified ID.', 16, 1);
 		return;
 		end
 
@@ -172,10 +175,89 @@ select *from [dbo].[Course]
 where [CourseID] = @CourseID
 end
 
-create proc sp_Manager_Course_Update @CourseID int, @CourseName nvarchar(100), @MaxDegree int, @MinDegree int
+--------------------------------------------------------------------------------------------------------------
+
+create proc sp_Manager_Course_Update @CourseID int, @Description nvarchar(max), @CourseName nvarchar(100), @MaxDegree int, @MinDegree int
 as
 begin
 
 set nocount on;
+	begin try
+	if not exists ( select 1 from [dbo].[Course] where [CourseID] = @CourseID)
+		begin
+		raiserror('No course found with the specified ID.', 16, 1);
+		return;
+		end
 
+	if exists (select 1 from [dbo].[Course] where [Course Name] = @CourseName and [CourseID] <> @CourseID)
+		begin
+		raiserror('A course with this name already exists.', 16, 1);
+		return;
+		end
+
+	if (@MinDegree >= @MaxDegree)
+        begin
+            raiserror ('min degree must be less than max degree.', 16, 1);
+            return;
+        end
+
+update [dbo].[Course]
+set [Course Name] = @CourseName,
+	[Description] = @Description,
+	[Max Degree] = @MaxDegree,
+	[Min Degree] = @MinDegree
+where [CourseID] = @CourseID
 	
+	end try
+	begin catch
+		throw;
+	end catch
+end
+
+--------------------------------------------------------------------------------------------------------------
+
+create proc sp_Manager_Course_Delete @CourseID int
+as
+begin
+	
+	set nocount on;
+
+	begin try
+	if not exists (select 1 from [dbo].[Course] where [CourseID] = @CourseID)
+		begin
+		raiserror('No course found with the specified ID.', 16, 1);
+		return;
+		end
+
+	if exists (select 1 from dbo.Exam where CourseID = @CourseID)
+        begin
+        raiserror ('Cannot delete. This course is used in one or more exams.', 16, 1);
+        return;
+        end
+
+	 if exists (select 1 from dbo.InstructorCourses where CourseID = @CourseID)
+        begin
+        raiserror ('Cannot delete. This course is currently assigned to one or more instructors.', 16, 1);
+        return;
+        end
+
+	 if exists (select 1 from [dbo].[Enrollments] where [CourseID] = @CourseID)
+		begin
+		raiserror('Cannot delete. There are students currently enrolled in this course.', 16, 1)
+		return;
+		end
+
+
+delete from [dbo].[Course]
+	where [CourseID] = @CourseID
+	print 'Course deleted successfully.';
+
+
+	end try
+	begin catch
+		throw;
+	end catch
+
+end
+
+
