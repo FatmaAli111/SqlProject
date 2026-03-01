@@ -2,50 +2,49 @@
 --- Exam Questions Entity ---
 
 -- add Questions to Exam 
-
 create proc sp_Instructor_Exam_AddQuestion @ques_id int , @exam_id int,  @degree int
 as begin
-
+SET NOCOUNT ON;
 begin try
- if NOT EXISTS(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
-  begin
-   raiserror( 'Exam not found',16,1);
-   return;
-  end
+if NOT EXISTS(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
+begin
+raiserror( 'Exam not found',16,1);
+return;
+end
 
-  if NOT EXISTS(select 1 from [dbo].[QuestionPool] where [QuestionID]=@ques_id)
-  begin
-   raiserror( 'Question not found',16,1);
-   return;
-  end
+if NOT EXISTS(select 1 from [dbo].[QuestionPool] where [QuestionID]=@ques_id)
+begin
+raiserror( 'Question not found',16,1);
+return;
+end
 
-  if EXISTS(select 1 from [dbo].[Contain] where [QuestionID]=@ques_id and [ExamID]= @exam_id)
-  begin
-  raiserror( 'Question already exists in this exam',16,1);
-   return;
-  end
+if EXISTS(select 1 from [dbo].[Contain] where [QuestionID]=@ques_id and [ExamID]= @exam_id)
+begin
+raiserror( 'Question already exists in this exam',16,1);
+return;
+end
 
-  declare @total int, @max_degree int;
+declare @total int, @max_degree int;
 
-  select @total =isnull(sum([Degree]),0)
-  from [dbo].[Contain]
-  where [ExamID]= @exam_id
+select @total =isnull(sum([Degree]),0)
+from [dbo].[Contain]
+where [ExamID]= @exam_id
 
-  select @max_degree =C.[Max Degree]
-  from [dbo].[Exam] as E
-  join [dbo].[Course] as C
-  on E.CourseID=C.CourseID
-  where E.[ExamID]= @exam_id
+select @max_degree =C.[Max Degree]
+from [dbo].[Exam] as E
+join [dbo].[Course] as C
+on E.CourseID=C.CourseID
+where E.[ExamID]= @exam_id
 
-  if(@degree+@total)>@max_degree
-   begin
-   raiserror( 'Adding this question exceeds the course max degree',16,1);
-    return
-   end
+if(@degree+@total)>@max_degree
+begin
+raiserror( 'Adding this question exceeds the course max degree',16,1);
+return
+end
 
-   insert into [dbo].[Contain]([Degree],[QuestionID],[ExamID])
-   values (@degree,@ques_id,@exam_id)
-   print 'Question added to exam successfully';
+insert into [dbo].[Contain]([Degree],[QuestionID],[ExamID])
+values (@degree,@ques_id,@exam_id)
+print 'Question added to exam successfully';
 end try
 begin catch
 print 'Error : ' + error_message();
@@ -57,23 +56,23 @@ go
 -- Remove Question from Exam
 create proc sp_Instructor_Exam_RemoveQuestion @question_id int , @exam_id int
 as begin
-
+SET NOCOUNT ON;
 begin try
- if NOT EXISTS(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
-  begin
-   raiserror( 'Exam not found',16,1);
-   return;
-  end
+if NOT EXISTS(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
+begin
+raiserror( 'Exam not found',16,1);
+return;
+end
 
-  if NOT EXISTS(select 1 from [dbo].[Contain] where [QuestionID]=@question_id and [ExamID]= @exam_id)
-  begin
-  raiserror( 'Question not exists in this exam',16,1);
-   return;
-  end
+if NOT EXISTS(select 1 from [dbo].[Contain] where [QuestionID]=@question_id and [ExamID]= @exam_id)
+begin
+raiserror( 'Question not exists in this exam',16,1);
+return;
+end
 
-   delete from  [dbo].[Contain]
-   where [ExamID]=@exam_id and [QuestionID]=@question_id
-   print 'Question removed from exam successfully';
+delete from  [dbo].[Contain]
+where [ExamID]=@exam_id and [QuestionID]=@question_id
+print 'Question removed from exam successfully';
 end try
 begin catch
 print 'Error : ' + error_message();
@@ -85,37 +84,37 @@ go
 -- update question in exam
 create proc sp_Instructor_Exam_UpdateQuestionDegree  @ques_id int , @exam_id int,  @new_degree int
 as begin
-
+SET NOCOUNT ON;
 begin try
 
-  if NOT EXISTS(select 1 from [dbo].[Contain] where [QuestionID]=@ques_id and [ExamID]= @exam_id)
-  begin
-  raiserror( 'Question not found in this exam',16,1);
-   return;
-  end
+if NOT EXISTS(select 1 from [dbo].[Contain] where [QuestionID]=@ques_id and [ExamID]= @exam_id)
+begin
+raiserror( 'Question not found in this exam',16,1);
+return;
+end
 
-  declare @total int, @max_degree int;
+declare @total int, @max_degree int;
 
-  select @total =isnull(sum([Degree]),0)
-  from [dbo].[Contain]
-  where [ExamID]= @exam_id and [QuestionID]<> @ques_id
+select @total =isnull(sum([Degree]),0)
+from [dbo].[Contain]
+where [ExamID]= @exam_id and [QuestionID]<> @ques_id
 
-  select @max_degree =C.[Max Degree]
-  from [dbo].[Exam] as E
-  join [dbo].[Course] as C
-  on E.CourseID=C.CourseID
-  where E.[ExamID]= @exam_id
+select @max_degree =C.[Max Degree]
+from [dbo].[Exam] as E
+join [dbo].[Course] as C
+on E.CourseID=C.CourseID
+where E.[ExamID]= @exam_id
 
-  if(@new_degree+@total)>@max_degree
-   begin
-   raiserror( 'updating this question exceeds the course max degree',16,1);
-    return
-   end
+if(@new_degree+@total)>@max_degree
+begin
+raiserror( 'updating this question exceeds the course max degree',16,1);
+return
+end
 
-   update [dbo].[Contain]
-   set [Degree]=@new_degree
-   where [ExamID]= @exam_id and [QuestionID]= @ques_id
-   print 'Question updated successfully';
+update [dbo].[Contain]
+set [Degree]=@new_degree
+where [ExamID]= @exam_id and [QuestionID]= @ques_id
+print 'Question updated successfully';
 end try
 begin catch
 print 'Error : ' + error_message();
@@ -130,17 +129,17 @@ create proc sp_Instructor_Exam_GetQuestions  @exam_id int
 as begin
 
 begin try
- if not exists(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
-  begin
-   raiserror( 'Exam not found',16,1);
-   return;
-  end
+if not exists(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
+begin
+raiserror( 'Exam not found',16,1);
+return;
+end
 
-  select Q.QuestionID,Q.QuestionType, Q.QuestionText,Q.CorrectAnswer ,C.Degree
-  from [dbo].[Contain] as C
-  join [dbo].[QuestionPool] as Q
-  on C.QuestionID=Q.QuestionID
-  where C.ExamID=@exam_id
+select Q.QuestionID,Q.QuestionType, Q.QuestionText,Q.CorrectAnswer ,C.Degree
+from [dbo].[Contain] as C
+join [dbo].[QuestionPool] as Q
+on C.QuestionID=Q.QuestionID
+where C.ExamID=@exam_id
 end try
 begin catch
 print 'Error : ' + error_message();
@@ -154,6 +153,7 @@ go
 --Add choice to an MCQ question
 create proc sp_Instructor_Choice_Add @question_id int, @choice_text Nvarchar(max)
 as begin
+SET NOCOUNT ON;
 begin try
 
 declare @type nvarchar(20);
@@ -213,6 +213,7 @@ go
 -- update choice for an MCQ question
 create proc sp_Instructor_Choice_Update @choice_id int , @choice_text nvarchar(50)
 as begin
+SET NOCOUNT ON;
 begin try
 if not exists(select 1 from [dbo].[QuestionChoices] where [ChoicesID]=@choice_id)
 begin
@@ -244,6 +245,7 @@ go
 -- delete choice 
 create proc sp_Instructor_Choice_Delete  @choice_id int 
 as begin
+SET NOCOUNT ON;
 begin try
 if not exists(select 1 from [dbo].[QuestionChoices] where [ChoicesID]=@choice_id)
 begin
@@ -262,3 +264,86 @@ end catch
 end
 
 go
+
+
+-- 1. Course
+INSERT INTO Course ([Course Name], [Description], [Max Degree], [Min Degree])
+VALUES ('Python Basics', 'Intro to Python', 100, 50);
+
+-- 2. Instructor
+INSERT INTO Instructor (FullName, Email)
+VALUES ('Ahmed Ali', 'ahmed@test.com');
+
+-- 3. Exam
+INSERT INTO Exam ([Name], [Type], StartTime, EndTime, [Day], CourseID, InstructorID)
+VALUES ('Midterm', 'Exam', '09:00', '11:00', '2024-03-15', 1, 1);
+
+-- 4. QuestionPool
+INSERT INTO QuestionPool (QuestionText, QuestionType, CorrectAnswer, CourseID)
+VALUES 
+('What is Python?', 'MCQ', 'A programming language', 1),
+('Is Python case-sensitive?', 'T/F', 'True', 1);
+
+------------------TEST-------------------
+
+-- Test sp_Instructor_Exam_AddQuestion
+exec sp_Instructor_Exam_AddQuestion @ques_id=7, @exam_id=1, @degree=1;
+
+exec sp_Instructor_Exam_AddQuestion @ques_id=1, @exam_id=999, @degree=10;
+
+exec sp_Instructor_Exam_AddQuestion @ques_id=999, @exam_id=1, @degree=10;
+
+exec sp_Instructor_Exam_AddQuestion @ques_id=1, @exam_id=1, @degree=10;
+
+exec sp_Instructor_Exam_AddQuestion @ques_id=5, @exam_id=1, @degree=999;
+
+-- Test sp_Instructor_Exam_RemoveQuestion
+exec sp_Instructor_Exam_RemoveQuestion @question_id=1, @exam_id=1;
+
+exec sp_Instructor_Exam_RemoveQuestion @question_id=1, @exam_id=999;
+
+exec sp_Instructor_Exam_RemoveQuestion @question_id=999, @exam_id=1;
+
+
+-- Test sp_Instructor_Exam_UpdateQuestionDegree
+exec sp_Instructor_Exam_AddQuestion @ques_id=1, @exam_id=1, @degree=10;
+
+exec sp_Instructor_Exam_UpdateQuestionDegree @ques_id=1, @exam_id=1, @new_degree=20;
+
+exec sp_Instructor_Exam_UpdateQuestionDegree @ques_id=999, @exam_id=1, @new_degree=20;
+
+exec sp_Instructor_Exam_UpdateQuestionDegree @ques_id=1, @exam_id=1, @new_degree=999;
+
+-- Test sp_Instructor_Exam_GetQuestions
+exec sp_Instructor_Exam_GetQuestions @exam_id=1;
+
+exec sp_Instructor_Exam_GetQuestions @exam_id=999;
+
+-- *******************************************
+
+-- Test sp_Instructor_Choice_Add
+exec sp_Instructor_Choice_Add @question_id=1, @choice_text='A programming language';
+
+exec sp_Instructor_Choice_Add @question_id=999, @choice_text='Test';
+
+exec sp_Instructor_Choice_Add @question_id=2, @choice_text='True';
+
+exec sp_Instructor_Choice_Add @question_id=1, @choice_text='A programming language';
+
+-- Test sp_Instructor_Choice_GetByQuestionId
+exec sp_Instructor_Choice_GetByQuestionId @question_id=1;
+
+exec sp_Instructor_Choice_GetByQuestionId @question_id=999;
+
+
+-- Test sp_Instructor_Choice_Update
+exec sp_Instructor_Choice_Update @choice_id=1, @choice_text='A scripting language';
+
+exec sp_Instructor_Choice_Update @choice_id=999, @choice_text='Test';
+
+exec sp_Instructor_Choice_Update @choice_id=1, @choice_text='A scripting language';
+
+-- Test sp_Instructor_Choice_delete
+exec sp_Instructor_Choice_Delete @choice_id=1;
+
+exec sp_Instructor_Choice_Delete @choice_id=999;
