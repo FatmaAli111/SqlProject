@@ -124,12 +124,13 @@ end
 
 go
 
+
 -- get questions from exam
 create proc sp_Instructor_Exam_GetQuestions  @exam_id int
 as begin
 
 begin try
- if NOT EXISTS(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
+ if not exists(select 1 from [dbo].[Exam] where [ExamID]=@exam_id)
   begin
    raiserror( 'Exam not found',16,1);
    return;
@@ -140,6 +141,120 @@ begin try
   join [dbo].[QuestionPool] as Q
   on C.QuestionID=Q.QuestionID
   where C.ExamID=@exam_id
+end try
+begin catch
+print 'Error : ' + error_message();
+end catch
+end
+
+go
+
+--- choices Questions Entity ---
+
+--Add choice to an MCQ question
+create proc sp_Instructor_Choice_Add @question_id int, @choice_text Nvarchar(max)
+as begin
+begin try
+
+declare @type nvarchar(20);
+select @type=[QuestionType] from [dbo].[QuestionPool]
+where [QuestionID]=@question_id;
+
+if(@type is null)
+begin
+raiserror('Question not found', 16, 1);
+return;
+end
+
+if(@type != 'MCQ')
+begin
+raiserror('Question type must be MCQ', 16, 1);
+return;
+end
+
+if EXISTS(select 1 from [dbo].[QuestionChoices] where ChoiceText=@choice_text and [QuestionID]= @question_id)
+begin
+raiserror( 'Choice already exists for this question',16,1);
+return;
+end
+insert into [dbo].[QuestionChoices] ([QuestionID],[ChoiceText])
+values (@question_id,@choice_text)
+print 'Choice added to Question successfully';
+end try
+begin catch
+print 'Error : ' + error_message();
+end catch
+end 
+
+go
+
+
+-- get choice for an MCQ question
+create proc sp_Instructor_Choice_GetByQuestionId @question_id int
+as begin
+begin try
+if NOT EXISTS(select 1 from  [dbo].[QuestionPool] where [QuestionID]=@question_id)
+begin
+raiserror('Question not found', 16, 1);
+return;
+end
+
+select [ChoicesID], [ChoiceText] from [dbo].[QuestionChoices]
+where [QuestionID]=@question_id;
+
+end try
+begin catch
+print 'Error : ' + error_message();
+end catch
+end
+
+go
+
+-- update choice for an MCQ question
+create proc sp_Instructor_Choice_Update @choice_id int , @choice_text nvarchar(50)
+as begin
+begin try
+if not exists(select 1 from [dbo].[QuestionChoices] where [ChoicesID]=@choice_id)
+begin
+raiserror('Choice not found', 16, 1);
+return;
+end
+
+if exists(select 1 from [dbo].[QuestionChoices] where ChoiceText=@choice_text
+and QuestionID = (select QuestionID from QuestionChoices where ChoicesID = @choice_id))
+begin
+raiserror( 'Choice already exists for this question',16,1);
+return;
+end
+
+update [dbo].[QuestionChoices]
+set [ChoiceText]=@choice_text
+where [ChoicesID]=@choice_id;
+print 'choice updated successfully';
+
+end try
+begin catch
+print 'Error : ' + error_message();
+end catch
+end
+
+go
+
+
+-- delete choice 
+create proc sp_Instructor_Choice_Delete  @choice_id int 
+as begin
+begin try
+if not exists(select 1 from [dbo].[QuestionChoices] where [ChoicesID]=@choice_id)
+begin
+raiserror('Choice not found', 16, 1);
+return;
+end
+
+delete [dbo].[QuestionChoices]
+where [ChoicesID]=@choice_id;
+print 'deleted successfully';
+
 end try
 begin catch
 print 'Error : ' + error_message();
