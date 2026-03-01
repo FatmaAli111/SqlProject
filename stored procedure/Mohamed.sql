@@ -89,6 +89,8 @@ create proc sp_Manager_Instructor_Delete @InstructorID int
 as
 begin
 
+set nocount on;
+
 	if not exists (select 1 from [dbo].[Instructor] where [InstructorID] = @InstructorID)
 		begin
 		raiserror ('Cannot delete. No instructor exists with this ID.', 16, 1);
@@ -119,11 +121,61 @@ end
 
 --------------------------------------------------------------------------------------------------------------
 
-create proc sp_Manager_Course_Add @CourseName nvarchar(100), @Description nvarchar(max), @MaxDegree int, @MinDegree int
+create proc sp_Manager_Course_Add @CourseName nvarchar(100), @Description nvarchar(max) = null, @MaxDegree int, @MinDegree int
 as
 begin
-	
+	if exists (select 1 from [dbo].[Course] where [Course Name] = @CourseName)
+        begin
+            raiserror ('a Course with this name already exists.', 16, 1);
+            return;
+        end
+
+	 if (@MinDegree >= @MinDegree)
+        begin
+            raiserror ('min degree must be less than max degree.', 16, 1);
+            return;
+        end
+
+        insert into [dbo].[Course] ([Course Name],[Description] , [Max Degree], [Min Degree])
+        values (@CourseName, @Description, @MaxDegree, @MinDegree);
+
+        print 'Course Added Successfully.';
 end
 
+--------------------------------------------------------------------------------------------------------------
 
+create proc sp_Manager_Course_GetAll
+as
+begin
 
+set nocount on;
+
+select *from [dbo].[Course]
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+
+create proc sp_Manager_Course_GetById @CourseID int
+as
+begin
+
+set nocount on; 
+
+	if not exists (select 1 from [dbo].[Course] where [CourseID] = @CourseID)
+		begin
+		raiserror('There is no Course with this ID', 16,1);
+		return;
+		end
+
+select *from [dbo].[Course]
+where [CourseID] = @CourseID
+end
+
+create proc sp_Manager_Course_Update @CourseID int, @CourseName nvarchar(100), @MaxDegree int, @MinDegree int
+as
+begin
+
+set nocount on;
+
+	
