@@ -69,7 +69,7 @@ end catch
 end
 
 --sp_Instructor_Question_Delete
-create proc sp_Instructor_Question_Delete @QsID int
+alter proc sp_Instructor_Question_Delete @QsID int
 as begin  
 
 begin try 
@@ -78,9 +78,10 @@ throw 51011,'Question Not Found',1;
 
 if  exists(select 1 from contain where QuestionID=@QsID)
 throw 51031,'Cannot delete Question: student answers exist',1;
+if  exists(select 1 from QuestionChoices where QuestionID=@QsID)
+throw 51031,'Cannot delete Question: QuestionChoices exist',1;
 
 delete from [dbo].[QuestionPool] where QuestionID=@QsID
-return 1;
 end try
 begin catch 
 throw;
@@ -99,11 +100,14 @@ end
 
 --### 4. Exam Entity
 
+alter table course add TrackID int 
+alter table course add constraint fk_course_track foreign key (TrackID) references track(TrackID)
 --sp_Instructor_Exam_Add
 alter proc sp_Instructor_Exam_Add @ExamName varchar(20),@ExamType varchar(10),
 @Examstarttime time,@ExamEndtime time ,@ExamDay date,@courseRef int ,@instructorRef int
 as begin 
 begin try 
+
 if(@ExamType not in ('Corrective','Exam'))
 throw 51012,'ExamType should be one of (Corrective,Exam)',1;
 if(@Examstarttime>@ExamEndtime)
@@ -129,6 +133,18 @@ InstructorID=@instructorRef
 )
 throw 51029,'instructor you Trying to reference is not found',1;
 end
+if exists(
+select * from exam as ex inner join course as crs 
+on ex.CourseID =crs.CourseID
+where crs.trackid in (select trackId from Course
+where CourseID=@courseRef
+) and
+@ExamDay=ex.Day 
+and @Examstarttime<ex.endtime 
+and @ExamEndtime>ex.starttime
+)
+throw 51000,'There is time overlab on more than one exam in one track',1;
+
 insert into exam(Name,Type,StartTime,EndTime,[Day],CourseID,InstructorID)
 values(@ExamName,@ExamType,@Examstarttime,@ExamEndtime,@ExamDay,@courseRef,@instructorRef)
 end try
@@ -232,5 +248,29 @@ delete from exam where ExamID=@id
 end try
 begin catch
 throw;
+end catch
+end
+-----------------------logic layer
+create proc sp_addstudentanswer
+    @studentid int,
+    @examid int,
+    @questionid int,
+    @selectedanswer varchar(100)
+as
+begin
+begin try
+    if exists(
+        select 1 from studentanswer
+        where studentid=@studentid
+        and examid=@examid
+        and questionid=@questionid
+    )
+        throw 51050,'you already answered this question',1;
+
+    insert into studentanswer(studentid,examid,questionid,studentanswer)
+    values(@studentid,@examid,@questionid,@selectedanswer);
+end try
+begin catch
+    throw;
 end catch
 end
