@@ -152,8 +152,7 @@ begin catch
 throw;
 end catch
 end
-
---sp_Instructor_Exam_GetByCourseId
+	--sp_Instructor_Exam_GetByCourseId
 create proc sp_Instructor_Exam_GetByCourseId @RefCourseId int
 as begin
 set nocount on;

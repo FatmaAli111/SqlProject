@@ -1,3 +1,6 @@
+alter table exam drop column examtotaltime;
+alter table exam
+add examtotaltime as (datediff(minute,[starttime],[endtime])) persisted;
 create table Exam(
 ExamID int primary Key identity(1,1),
 [Name] varchar(20) not null,
