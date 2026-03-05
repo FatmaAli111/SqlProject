@@ -15,17 +15,12 @@ go
 create function GetStudentPassFail  (@exam_id int , @student_id int)
 returns nvarchar(10)
 as begin
-
-declare @min_degree int;
 declare @total_degree int;
-
-select @min_degree=C.[Min Degree] from [dbo].[Course] C
-join [dbo].[Exam] E on C.CourseID=E.CourseID
-where E.ExamID=@exam_id;
-
+declare @exam_total int;
+set @exam_total  = dbo.fn_GetExamTotalDegree(@exam_id);
 set @total_degree=dbo.GetStudentResult(@exam_id, @student_id);
 
-if(@total_degree>=@min_degree)
+if(@total_degree >= (@exam_total * 0.5))
    return 'Pass';
 return 'Fail';
 end
