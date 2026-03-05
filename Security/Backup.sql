@@ -8,7 +8,7 @@ BEGIN
     DECLARE @CurrentDate NVARCHAR(20);
     
     DECLARE @BackupPath NVARCHAR(256) = 'C:\Backup\';
-
+    
     BEGIN TRY
         SET @CurrentUserID = USER_ID(USER_NAME());
         IF NOT EXISTS (

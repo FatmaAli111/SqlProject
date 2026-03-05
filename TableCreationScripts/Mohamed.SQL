@@ -53,3 +53,52 @@ constraint FK_InstructorCourses_Course  foreign key (CourseID) references Course
 )
 
 ----------------------------------------------------------------------------------------------------------
+
+create table StudentExam(
+StudentExamID int identity(1,1) not null,
+StudentID int not null,
+ExamID int not null,
+TotalScore int null,
+ constraint PK_StudentExam primary key clustered 
+(
+	[StudentExamID] asc
+)with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on, optimize_for_sequential_key = off) on [PRIMARY],
+ constraint [UQ_Student_Exam] unique nonclustered 
+(
+	[StudentID] asc,
+	[ExamID] asc
+)with (pad_index = off, statistics_norecompute = off, ignore_dup_key = off, allow_row_locks = on, allow_page_locks = on, optimize_for_sequential_key = off) on [PRIMARY]
+) on [PRIMARY]
+go
+
+alter table [dbo].[StudentExam]  with check add  constraint [FK_StudentExam_Exam] foreign key([ExamID])
+references [dbo].[Exam] ([ExamID])
+on delete cascade
+go
+
+alter table [dbo].[StudentExam] check constraint [FK_StudentExam_Exam]
+go
+
+alter table [dbo].[StudentExam]  with check add  constraint [FK_StudentExam_Student] foreign key([StudentID])
+references [dbo].[Student] ([studentId])
+on delete cascade
+go
+
+alter table [dbo].[StudentExam] check constraint [FK_StudentExam_Student]
+
+----------------------------------------------------------------------------------------------------------
+
+create table DataChangeAudit
+(
+AuditID int identity(1,1) not null,
+UserID int not null,
+TableName nvarchar(128) null,
+ChangeType nvarchar(20) null,
+OldValue nvarchar(max) null,
+NewValue nvarchar(max) null,
+ChangeTime datetime null,
+
+constraint DataChangeAudit_PK primary key (AuditID),
+constraint FK_DataChangeAudit_UserID foreign key (UserID) references UserAccounts(userId),
+constraint DF_DataChangeAudit_ChangeTime default getdate() for ChangeTime
+);
