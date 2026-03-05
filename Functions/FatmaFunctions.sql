@@ -29,3 +29,4 @@ select @var=count(questionid) from QuestionPool
 where CourseID=@CourseRef
 return isnull(@var,0)
 end
+
