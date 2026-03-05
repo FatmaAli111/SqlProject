@@ -26,6 +26,7 @@ set nocount on;
 
 declare @correct_answer nvarchar(max);
 declare @student_answer nvarchar(max);
+declare @question_type nvarchar(4);
 declare @question_id int;
 declare @student_id int;
 declare @exam_id int;
@@ -36,23 +37,24 @@ select @question_id=[QuestionID],@exam_id=[ExamID],@student_answer=[studentAnswe
 select @degree = [Degree]  from [dbo].[Contain]
 where [QuestionID]=@question_id and [ExamID]=@exam_id;
 
-select @correct_answer = [CorrectAnswer]  from [dbo].[QuestionPool]
+select @correct_answer = [CorrectAnswer],@question_type= [QuestionType] from [dbo].[QuestionPool]
 where [QuestionID]=@question_id ;
 
+if(@question_type != 'Text')
+begin
 if(@student_answer=@correct_answer)
 begin
 update [dbo].[StudentAnswer]
 set [studentDegree]=@degree
 where [QuestionID]=@question_id and [ExamID]=@exam_id and [studentId]=@student_id;
 end
-
 else
 begin
 update [dbo].[StudentAnswer]
 set [studentDegree]=0
 where [QuestionID]=@question_id and [ExamID]=@exam_id and [studentId]=@student_id;
 end
-
+end
 end
 
 go
