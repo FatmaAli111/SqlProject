@@ -3,7 +3,7 @@
 create view vw_InstructorSchedule as
 select S.FullName as [Instructor Name],
 C.[Course Name],
-E.[Name], 
+E.[Name] as [Exam Name], 
 E.[Day],
 format(cast(E.[StartTime]as datetime),'hh:mm tt') as StartTime,
 format(cast(E.EndTime as datetime),'hh:mm tt') as EndTime,
@@ -25,16 +25,19 @@ create view VW_ExamStudentResults as
 select concat(S.[fname],' ',S.[lname]) as [Student Name] ,
 T.[trackName],
 C.[Course Name],
-E.[Name],
+E.[Name] as [Exam Name],
 dbo.GetStudentResult (E.[ExamID] , S.[studentId]) as Degree,
 dbo.GetStudentPassFail  (E.[ExamID] , S.[studentId]) as Result
+
 from [dbo].[Student] as S
-join [dbo].[Track] as T
-on S.[trackId]=T.[trackId]
+join [dbo].[Track] as T 
+on S.[trackId] = T.[trackId]
+join [dbo].[Enrollments] as EN 
+on EN.[StudentID] = S.[studentId]
 join [dbo].[Course] as C 
-on c.[trackId]=T.[trackId]
-join [dbo].[Exam] as E
-on E.[CourseID]= C.[CourseID]
+on C.[CourseID] = EN.[CourseID]
+join [dbo].[Exam] as E 
+on E.[CourseID] = C.[CourseID]
 ------------------------------------
 go 
 select * from VW_ExamStudentResults;
