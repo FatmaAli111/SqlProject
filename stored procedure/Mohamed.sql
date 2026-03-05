@@ -260,4 +260,94 @@ delete from [dbo].[Course]
 
 end
 
+--------------------------------------------------------------------------------------------------------------
 
+create procedure sp_Instructor_EnrollStudentInExam
+(
+@examId int,
+@studentId int
+)
+as
+begin
+
+set nocount on;
+
+if not exists (select 1 from Exam where ExamID = @examId)
+throw 50020, 'Exam not found.', 1;
+
+if not exists (select 1 from Student where studentId = @studentId)
+throw 50021, 'Student not found.', 1;
+
+declare @courseId int;
+
+select @courseId = CourseID
+from Exam
+where ExamID = @examId;
+
+if not exists
+(
+select 1
+from Enrollments
+where StudentID = @studentId
+and CourseID = @courseId
+)
+begin
+    throw 50022, 'This student is not enrolled in the course for this exam.', 1;
+end
+
+insert into StudentExam (ExamID, StudentID)
+values (@examId, @studentId);
+
+print 'SUCCESS: Student enrolled in the exam.';
+
+end
+
+--------------------------------------------------------------------------------------------------------------
+
+create procedure sp_Instructor_GradeTextQuestion
+(
+@studentId int,
+@examId int,
+@questionId int,
+@degree int
+)
+as
+begin
+
+if not exists
+(
+select 1
+from QuestionPool
+where QuestionID = @questionId
+and QuestionType = 'Text'
+)
+begin
+    throw 50006, 'This procedure can only be used for "Text" type questions.', 1;
+end
+
+declare @maxDegreeForQuestion int;
+
+select @maxDegreeForQuestion = Degree
+from Contain
+where ExamID = @examId
+and QuestionID = @questionId;
+
+if (@degree > @maxDegreeForQuestion)
+begin
+    throw 50007, 'Assigned degree cannot be greater than the maximum degree for this question in the exam.', 1;
+end
+
+update StudentAnswer
+set studentDegree = @degree
+where studentId = @studentId
+and examId = @examId
+and questionID = @questionId;
+
+if (@@rowcount = 0)
+begin
+    throw 50008, 'No answer found for the specified student, exam, and question.', 1;
+end
+
+print 'SUCCESS: Student answer graded successfully.';
+
+end

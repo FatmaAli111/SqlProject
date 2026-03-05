@@ -1,54 +1,73 @@
-CREATE OR ALTER PROCEDURE dbo.sp_CreateDatabaseBackup
-AS
-BEGIN
-    SET NOCOUNT ON;
+create or alter procedure sp_CreateDatabaseBackup
+as
+begin
+    set nocount on;
 
-    DECLARE @CurrentUserID INT;
-    DECLARE @BackupFile NVARCHAR(512);
-    DECLARE @CurrentDate NVARCHAR(20);
+    declare @CurrentUserID int;
+    declare @BackupFile nvarchar(512);
+    declare @CurrentDate nvarchar(20);
     
-    DECLARE @BackupPath NVARCHAR(256) = 'C:\Backup\';
+    declare @BackupPath nvarchar(256) = 'C:\Backup\';
     
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        IF NOT EXISTS (
-            SELECT 1 FROM dbo.UserAccounts 
-            WHERE userRole = 'AdminRole'
+    begin try
+
+        set @CurrentUserID = user_id(user_name());
+
+        if not exists
+        (
+            select 1
+            from UserAccounts
+            where userRole = 'AdminRole'
         )
-        BEGIN
-            RAISERROR('Unauthorized: Only users in AdminRole can create backups.', 16, 1);
-            RETURN;
-        END
+        begin
+            raiserror('Unauthorized: Only users in AdminRole can create backups.',16,1);
+            return;
+        end
 
-        SET @CurrentDate = FORMAT(GETDATE(), 'yyyyMMdd_HHmmss');
-        SET @BackupFile = @BackupPath + 'ExaminationSystem_' + @CurrentDate + '.bak';
+        set @CurrentDate = format(getdate(),'yyyyMMdd_HHmmss');
+        set @BackupFile = @BackupPath + 'ExaminationSystem_' + @CurrentDate + '.bak';
         
-        PRINT 'Backup will be created at: ' + @BackupFile;
+        print 'Backup will be created at: ' + @BackupFile;
 
-        BACKUP DATABASE [ExaminationSystem]
-        TO DISK = @BackupFile
-        WITH INIT, STATS = 10;
-        
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, ChangeType, NewValue, ChangeTime)
-        VALUES 
-            (@CurrentUserID, 'System', 'BACKUP', 
-             'Backup created at: ' + @BackupFile, GETDATE());
-        
-        PRINT 'Backup completed successfully.';
+        backup database ExaminationSystem
+        to disk = @BackupFile
+        with init, stats = 10;
 
-    END TRY
-    BEGIN CATCH
-        IF ERROR_MESSAGE() LIKE '%Access is denied%'
-        BEGIN
-            RAISERROR('Backup failed due to a permissions issue. Ensure the SQL Server service account has write access to the C:\ drive. It is recommended to use a dedicated backup folder instead.', 16, 1);
-        END
-        ELSE
-        BEGIN
-            DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-            RAISERROR(@ErrorMessage, 16, 1);
-        END
-        RETURN;
-    END CATCH
-END;
-GO
+        insert into DataChangeAudit
+        (
+            UserID,
+            TableName,
+            ChangeType,
+            NewValue,
+            ChangeTime
+        )
+        values
+        (
+            @CurrentUserID,
+            'System',
+            'BACKUP',
+            'Backup created at: ' + @BackupFile,
+            getdate()
+        );
+
+        print 'Backup completed successfully.';
+
+    end try
+
+    begin catch
+
+        if error_message() like '%Access is denied%'
+        begin
+            raiserror('Backup failed due to a permissions issue. Ensure the SQL Server service account has write access to the C:\ drive. It is recommended to use a dedicated backup folder instead.',16,1);
+        end
+        else
+        begin
+            declare @ErrorMessage nvarchar(4000) = error_message();
+            raiserror(@ErrorMessage,16,1);
+        end
+
+        return;
+
+    end catch
+end;
+go
