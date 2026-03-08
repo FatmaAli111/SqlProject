@@ -112,6 +112,19 @@ constraint DF_DataChangeAudit_ChangeTime default getdate() for ChangeTime
 
 ----------------------------------------------------------------------------------------------------------
 
+ CREATE TABLE dbo.DataChangeAudit (
+        AuditID INT PRIMARY KEY IDENTITY(1,1),
+        UserID INT,
+        TableName NVARCHAR(100),
+        OperationType NVARCHAR(20), -- INSERT, UPDATE, DELETE
+        RecordID INT,
+        OldValues NVARCHAR(MAX),
+        NewValues NVARCHAR(MAX),
+        ChangeTime DATETIME DEFAULT GETDATE(),
+        CONSTRAINT FK_DataChangeAudit_UserAccounts 
+            FOREIGN KEY (UserID) 
+            REFERENCES dbo.UserAccounts(UserID)
+    );
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 --Fatma
@@ -276,6 +289,25 @@ constraint fk_studentphone_student foreign key (studentId) references Student(st
 
 
 
+alter table [dbo].[Contain] drop column [StudentAnswer];
+
+create table StudentAnswer(
+studentId int not null,
+examId int not null,
+questionID int not null,
+studentAnswer nvarchar(max),
+studentDegree int default 0,
+
+constraint fk_studentId foreign key (studentId) references [dbo].[Student]([studentId]),
+constraint fk_examId foreign key (examId) references [dbo].[Exam]([ExamID]),
+constraint fk_questionID foreign key (questionID) references [dbo].[QuestionPool]([QuestionID]),
+constraint fk_examQuestion foreign key (examId, questionID)  references [dbo].[Contain](ExamID, QuestionID),
+
+constraint pk_StudentAnswer primary key (studentId,examId,questionID)
+)
+
+go 
+
 
 
 ----------user-------------------
@@ -319,259 +351,6 @@ BEGIN
 END
 GO
 
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_HashPassword
-    @plainPassword NVARCHAR(MAX),
-    @hashedPassword NVARCHAR(MAX) OUTPUT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    BEGIN TRY
-        SET @hashedPassword = CONVERT(NVARCHAR(MAX), 
-                                      HASHBYTES('SHA2_256', @plainPassword), 
-                                      2);
-        
-        IF @hashedPassword IS NULL
-        BEGIN
-            RAISERROR('Hashing Failed', 16, 1);
-            RETURN -1;
-        END
-        
-        RETURN 0;
-    END TRY
-    BEGIN CATCH
-        RAISERROR('Hashing Failed', 16, 1);
-        RETURN -1;
-    END CATCH
-END
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_VerifyPassword
-    @userName NVARCHAR(30),
-    @plainPassword NVARCHAR(MAX),
-    @isValid BIT OUTPUT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @hashedPassword NVARCHAR(MAX);
-    DECLARE @storedHash NVARCHAR(MAX);
-    DECLARE @userId INT;
-    DECLARE @isLocked BIT;
-    
-    BEGIN TRY
-        SELECT @userId = userId, @storedHash = userPasswordHash, @isLocked = IsLocked
-        FROM dbo.UserAccounts
-        WHERE userName = @userName;
-        
-        IF @userId IS NULL
-        BEGIN
-            SET @isValid = 0;
-            RAISERROR('Valid user', 16, 1);
-            RETURN -1;
-        END
-        
-        IF @isLocked = 1
-        BEGIN
-            SET @isValid = 0;
-            RAISERROR('The account is closed due to multiple incorrect attempts.', 16, 1);
-            RETURN -2;
-        END
-        
-        EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
-        
-        IF @hashedPassword = @storedHash
-        BEGIN
-            SET @isValid = 1;
-            
-            UPDATE dbo.UserAccounts
-            SET FailedLoginAttempts = 0
-            WHERE userId = @userId;
-            
-            INSERT INTO dbo.LoginAudit (UserID, LoginStatus, LoginTime)
-            VALUES (@userId, 'Success', GETDATE());
-            
-            RETURN 0;
-        END
-        ELSE
-        BEGIN
-            SET @isValid = 0;
-            
-            UPDATE dbo.UserAccounts
-            SET FailedLoginAttempts = FailedLoginAttempts + 1
-            WHERE userId = @userId;
-            
-            IF (SELECT FailedLoginAttempts FROM dbo.UserAccounts WHERE userId = @userId) >= 10
-            BEGIN
-                UPDATE dbo.UserAccounts
-                SET IsLocked = 1
-                WHERE userId = @userId;
-                
-                RAISERROR('The account is closed due to multiple incorrect attempts.', 16, 1);
-                RETURN -3;
-            END
-            
-            INSERT INTO dbo.LoginAudit (UserID, LoginStatus, LoginTime)
-            VALUES (@userId, 'Failed', GETDATE());
-            
-            RAISERROR('Wrong Password', 16, 1);
-            RETURN -4;
-        END
-    END TRY
-    BEGIN CATCH
-        SET @isValid = 0;
-        RAISERROR('unknown error ', 16, 1);
-        RETURN -999;
-    END CATCH
-END
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_UpdatePassword
-    @userId INT,
-    @oldPassword NVARCHAR(MAX),
-    @newPassword NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @userName NVARCHAR(30);
-    DECLARE @isValid BIT;
-    DECLARE @hashedNewPassword NVARCHAR(MAX);
-    
-    BEGIN TRY
-        SELECT @userName = userName FROM dbo.UserAccounts WHERE userId = @userId;
-        
-        IF @userName IS NULL
-        BEGIN
-            RAISERROR('المستخدم غير موجود', 16, 1);
-            RETURN -1;
-        END
-        
-        EXEC dbo.sp_VerifyPassword @userName, @oldPassword, @isValid OUTPUT;
-        
-        IF @isValid = 0
-        BEGIN
-            RAISERROR('كلمة السر القديمة غير صحيحة', 16, 1);
-            RETURN -2;
-        END
-        
-        IF LEN(@newPassword) < 12
-        BEGIN
-            RAISERROR('The password must be at least 12 characters long.', 16, 1);
-            RETURN -3;
-        END
-        
-        EXEC dbo.sp_HashPassword @newPassword, @hashedNewPassword OUTPUT;
-        
-        UPDATE dbo.UserAccounts
-        SET userPasswordHash = @hashedNewPassword,
-            LastPasswordChange = GETDATE(),
-            FailedLoginAttempts = 0,
-            IsLocked = 0
-        WHERE userId = @userId;
-        
-        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
-        VALUES (@userId, 'UserAccounts', 'Password Changed', GETDATE());
-        
-        PRINT 'Password updated successfully';
-        RETURN 0;
-    END TRY
-    BEGIN CATCH
-        RAISERROR('Password update error', 16, 1);
-        RETURN -999;
-    END CATCH
-END
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_CreateSecureUser
-    @userName NVARCHAR(30),
-    @plainPassword NVARCHAR(MAX),
-    @userRole NVARCHAR(30)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @hashedPassword NVARCHAR(MAX);
-    DECLARE @userId INT;
-    
-    BEGIN TRY
-        IF EXISTS (SELECT 1 FROM dbo.UserAccounts WHERE userName = @userName)
-        BEGIN
-            RAISERROR('Username already exists', 16, 1);
-            RETURN -1;
-        END
-        
-        IF LEN(@plainPassword) < 12
-        BEGIN
-            RAISERROR('The password must be at least 12 characters long.', 16, 1);
-            RETURN -2;
-        END
-        
-        EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
-        
-        INSERT INTO dbo.UserAccounts (userName, userPassword, userPasswordHash, userRole, LastPasswordChange, FailedLoginAttempts, IsLocked)
-        VALUES (@userName, '***ENCRYPTED***', @hashedPassword, @userRole, GETDATE(), 0, 0);
-        
-        SET @userId = SCOPE_IDENTITY();
-        
-        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
-        VALUES (@userId, 'UserAccounts', 'User Created', GETDATE());
-        
-        PRINT 'User created ' + @userName + ' Successfully';
-        RETURN @userId;
-    END TRY
-    BEGIN CATCH
-        RAISERROR('Error creating user', 16, 1);
-        RETURN -999;
-    END CATCH
-END
-GO
-
-
-
-CREATE OR ALTER TRIGGER tr_SyncPasswordWithLogin
-ON dbo.UserAccounts
-AFTER UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @userName NVARCHAR(30);
-    DECLARE @hashedPassword NVARCHAR(MAX);
-    
-    SELECT @userName = userName, @hashedPassword = userPasswordHash
-    FROM inserted;
-    
-    IF UPDATE(userPasswordHash)
-    BEGIN
-        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
-        SELECT userId, 'UserAccounts', 'Password Synced with LOGIN', GETDATE()
-        FROM inserted;
-    END
-END
-GO
-
-
-
-CREATE OR ALTER VIEW dbo.vw_SafeUserAccounts
-AS
-SELECT 
-    userId,
-    userName,
-    userRole,
-    LastPasswordChange,
-    FailedLoginAttempts,
-    IsLocked
-FROM dbo.UserAccounts
-GO
 
 
 
@@ -635,182 +414,25 @@ BEGIN
     CREATE INDEX IX_PasswordChangeHistory_UserID ON dbo.PasswordChangeHistory(UserID);
     CREATE INDEX IX_PasswordChangeHistory_ChangeTime ON dbo.PasswordChangeHistory(ChangeTime DESC);
     
-    PRINT 'تم إنشاء جدول PasswordChangeHistory';
 END
 GO
 
 
-
-CREATE OR ALTER TRIGGER tr_LogPasswordChanges
-ON dbo.UserAccounts
-AFTER UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    IF UPDATE(userPasswordHash)
-    BEGIN
-        INSERT INTO dbo.PasswordChangeHistory (UserID, OldPasswordHash, NewPasswordHash, ChangeTime)
-        SELECT 
-            i.userId,
-            d.userPasswordHash,
-            i.userPasswordHash,
-            GETDATE()
-        FROM inserted i
-        JOIN deleted d ON i.userId = d.userId;
-    END
-END
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_UnlockUserAccount
-    @userId INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    BEGIN TRY
-        UPDATE dbo.UserAccounts
-        SET IsLocked = 0,
-            FailedLoginAttempts = 0
-        WHERE userId = @userId;
-        
-        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
-        VALUES (@userId, 'UserAccounts', 'Account Unlocked', GETDATE());
-        
-        PRINT 'تم فتح الحساب بنجاح';
-        RETURN 0;
-    END TRY
-    BEGIN CATCH
-        RAISERROR('خطأ في فتح الحساب', 16, 1);
-        RETURN -1;
-    END CATCH
-END
-GO
-
-GRANT EXECUTE ON dbo.sp_UnlockUserAccount TO AdminRole;
-
-GO
-
-
-exec sp_CreateSecureUser Mohamed, Mohamed123123, instructor
 /*
 
-1. sp_HashPassword - تشفير كلمة السر
-   EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
+sp_HashPassword - Encrypt the password EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
+sp_VerifyPassword - Verify the password EXEC dbo.sp_VerifyPassword @userName, @plainPassword, @isValid OUTPUT;
+sp_UpdatePassword - Update the password EXEC dbo.sp_UpdatePassword @userId, @oldPassword, @newPassword;
+sp_CreateSecureUser - Create a new user securely EXEC dbo.sp_CreateSecureUser @userName, @plainPassword, @userRole;
+sp_UnlockUserAccount - Unlock a locked account EXEC dbo.sp_UnlockUserAccount @userId;
 
-2. sp_VerifyPassword - التحقق من كلمة السر
-   EXEC dbo.sp_VerifyPassword @userName, @plainPassword, @isValid OUTPUT;
-
-3. sp_UpdatePassword - تحديث كلمة السر
-   EXEC dbo.sp_UpdatePassword @userId, @oldPassword, @newPassword;
-
-4. sp_CreateSecureUser - إنشاء مستخدم جديد بشكل آمن
-   EXEC dbo.sp_CreateSecureUser @userName, @plainPassword, @userRole;
-
-5. sp_UnlockUserAccount - فتح حساب مقفول
-   EXEC dbo.sp_UnlockUserAccount @userId;
-
-الجداول الجديدة:
-- PasswordChangeHistory - تسجيل تاريخ تغييرات كلمات السر
-
-الأعمدة الجديدة في UserAccounts:
-- userPasswordHash - كلمة السر المشفرة
-- LastPasswordChange - آخر تغيير لكلمة السر
-- FailedLoginAttempts - عدد محاولات الدخول الفاشلة
-- IsLocked - حالة قفل الحساب
+PasswordChangeHistory - Logs the history of password changes New Columns in UserAccounts:
+userPasswordHash - The encrypted password
+LastPasswordChange - The last password change date
+FailedLoginAttempts - The number of failed login attempts
+IsLocked - The lock status of the account
 */
 
-PRINT '✓ تم تطبيق جميع تحسينات الأمان بنجاح!';
-
-
-
-USE [ExaminationSystem]
-GO
-
--- ... (Previous code remains the same until sp_CreateSecureUser) ...
-
-CREATE OR ALTER PROCEDURE dbo.sp_CreateSecureUser
-    @userName NVARCHAR(30),
-    @plainPassword NVARCHAR(MAX),
-    @userRole NVARCHAR(30)
-AS
-BEGIN
-    SET NOCOUNT ON;
-
-    DECLARE @hashedPassword NVARCHAR(MAX);
-    DECLARE @userId INT;
-    DECLARE @sql NVARCHAR(MAX);
-
-    BEGIN TRY
-        -- Check if the user already exists in the UserAccounts table
-        IF EXISTS (SELECT 1 FROM dbo.UserAccounts WHERE userName = @userName)
-        BEGIN
-            RAISERROR('Username already exists in the UserAccounts table.', 16, 1);
-            RETURN -1;
-        END
-
-        IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @userName)
-        BEGIN
-            RAISERROR('Login name already exists on the server.', 16, 1);
-            RETURN -2;
-        END
-
-        IF LEN(@plainPassword) < 12
-        BEGIN
-            RAISERROR('Password must be at least 12 characters long.', 16, 1);
-            RETURN -3;
-        END
-
-        SET @sql = N'CREATE LOGIN ' + QUOTENAME(@userName) + N' WITH PASSWORD = N''' + REPLACE(@plainPassword, '''', '''''') + N''';';
-        EXEC sp_executesql @sql;
-        PRINT 'Server login created successfully for: ' + @userName;
-
-        SET @sql = N'CREATE USER ' + QUOTENAME(@userName) + N' FOR LOGIN ' + QUOTENAME(@userName) + N';';
-        EXEC sp_executesql @sql;
-        PRINT 'Database user created successfully for: ' + @userName;
-
-        SET @sql = N'ALTER ROLE ' + QUOTENAME(@userRole) + N' ADD MEMBER ' + QUOTENAME(@userName) + N';';
-        EXEC sp_executesql @sql;
-        PRINT 'User ' + @userName + ' added to role ' + @userRole;
-
-        EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
-
-        INSERT INTO dbo.UserAccounts (userName, userPassword, userPasswordHash, userRole, LastPasswordChange, FailedLoginAttempts, IsLocked)
-        VALUES (@userName, '***ENCRYPTED***', @hashedPassword, @userRole, GETDATE(), 0, 0);
-
-        SET @userId = SCOPE_IDENTITY();
-
-        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
-        VALUES (@userId, 'UserAccounts', 'User Created', GETDATE());
-
-        PRINT 'User ' + @userName + ' created successfully in both the table and on the server.';
-        RETURN @userId;
-    END TRY
-    BEGIN CATCH
-        IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @userName)
-        BEGIN
-            SET @sql = N'DROP LOGIN ' + QUOTENAME(@userName) + N';';
-            EXEC sp_executesql @sql;
-            PRINT 'Rolled back server login creation due to an error.';
-        END
-        
-        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-        DECLARE @ErrorState INT = ERROR_STATE();
-        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
-        
-        RETURN -999;
-    END CATCH
-END
-GO
-
-drop proc dbo.sp_CreateSecureUser
-
-
-GO
-exec dbo.sp_CreateSecureUser Mohamed000, Mohamed123123, InstructorRole 
 
 
 ----------------functions 
@@ -855,6 +477,16 @@ return @TotalDegree;
 end;
 
 ------------------------------------------------------------------------------------------------------------
+
+CREATE FUNCTION dbo.fn_HashPassword(@Password NVARCHAR(255))
+RETURNS NVARCHAR(255)
+AS
+BEGIN
+    DECLARE @HashedPassword NVARCHAR(255);
+    SET @HashedPassword = CONVERT(VARCHAR(255), 
+        HASHBYTES('SHA2_256', @Password), 2);
+    RETURN @HashedPassword;
+END;
 
 
 --------------------------------------------------------------------------------
@@ -986,6 +618,43 @@ include ([studentdegree]);
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
+create procedure [dbo].[sp_instructor_exam_addrandomquestions]
+     @examid int,
+     @numberofquestions int,
+     @degreeperquestion int
+ as
+ begin
+     if not exists (select 1 from dbo.exam where examid = @examid) throw 50004, 'exam not found.', 1;
+
+     declare @totalnewdegrees int = @numberofquestions * @degreeperquestion;
+     declare @currentexamdegrees int;
+     declare @coursemaxdegrees int;
+
+     select @currentexamdegrees = isnull(sum(degree), 0) from dbo.contain where examid = @examid;
+     select @coursemaxdegrees = c.[max degree] from dbo.exam e join dbo.course c on e.courseid = c.courseid where e.examid = @examid;
+
+     if (@currentexamdegrees + @totalnewdegrees > @coursemaxdegrees)
+     begin
+         declare @errormsg nvarchar(200) = formatmessage('cannot add questions. adding %d degrees would exceed the course max degree of %d. current exam degree is %d.', @totalnewdegrees, @coursemaxdegrees, @currentexamdegrees);
+         throw 50005, @errormsg, 1;
+     end
+
+     insert into dbo.contain (examid, questionid, degree)
+     select top (@numberofquestions)
+         @examid,
+         q.questionid,
+         @degreeperquestion
+     from 
+         dbo.questionpool q
+     where 
+         q.courseid = (select courseid from dbo.exam where examid = @examid)
+         and q.questionid not in (select questionid from dbo.contain where examid = @examid)
+     order by 
+         newid();
+
+     print formatmessage('success: %d random questions of type %s added to exam %d.', @@rowcount, @questiontype, @examid);
+ end
+--------------------------------------------------------------------------------
 
 create proc sp_Manager_Instructor_Add @FullName nvarchar(20), @Email nvarchar(20), @ManagerID int, @UserID int
 as
@@ -1509,9 +1178,475 @@ BEGIN
     PRINT 'SUCCESS: Track updated.';
 END
 
+--------------------------------------------------------------------------------------------------------------
+
+CREATE OR ALTER PROCEDURE dbo.sp_HashPassword
+    @plainPassword NVARCHAR(MAX),
+    @hashedPassword NVARCHAR(MAX) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    BEGIN TRY
+        SET @hashedPassword = CONVERT(NVARCHAR(MAX), 
+                                      HASHBYTES('SHA2_256', @plainPassword), 
+                                      2);
+        
+        IF @hashedPassword IS NULL
+        BEGIN
+            RAISERROR('Hashing Failed', 16, 1);
+            RETURN -1;
+        END
+        
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        RAISERROR('Hashing Failed', 16, 1);
+        RETURN -1;
+    END CATCH
+END
+GO
+
+--------------------------------------------------------------------------------------------------------------
+
+
+CREATE OR ALTER PROCEDURE dbo.sp_VerifyPassword
+    @userName NVARCHAR(30),
+    @plainPassword NVARCHAR(MAX),
+    @isValid BIT OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @hashedPassword NVARCHAR(MAX);
+    DECLARE @storedHash NVARCHAR(MAX);
+    DECLARE @userId INT;
+    DECLARE @isLocked BIT;
+    
+    BEGIN TRY
+        SELECT @userId = userId, @storedHash = userPasswordHash, @isLocked = IsLocked
+        FROM dbo.UserAccounts
+        WHERE userName = @userName;
+        
+        IF @userId IS NULL
+        BEGIN
+            SET @isValid = 0;
+            RAISERROR('Valid user', 16, 1);
+            RETURN -1;
+        END
+        
+        IF @isLocked = 1
+        BEGIN
+            SET @isValid = 0;
+            RAISERROR('The account is closed due to multiple incorrect attempts.', 16, 1);
+            RETURN -2;
+        END
+        
+        EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
+        
+        IF @hashedPassword = @storedHash
+        BEGIN
+            SET @isValid = 1;
+            
+            UPDATE dbo.UserAccounts
+            SET FailedLoginAttempts = 0
+            WHERE userId = @userId;
+            
+            INSERT INTO dbo.LoginAudit (UserID, LoginStatus, LoginTime)
+            VALUES (@userId, 'Success', GETDATE());
+            
+            RETURN 0;
+        END
+        ELSE
+        BEGIN
+            SET @isValid = 0;
+            
+            UPDATE dbo.UserAccounts
+            SET FailedLoginAttempts = FailedLoginAttempts + 1
+            WHERE userId = @userId;
+            
+            IF (SELECT FailedLoginAttempts FROM dbo.UserAccounts WHERE userId = @userId) >= 10
+            BEGIN
+                UPDATE dbo.UserAccounts
+                SET IsLocked = 1
+                WHERE userId = @userId;
+                
+                RAISERROR('The account is closed due to multiple incorrect attempts.', 16, 1);
+                RETURN -3;
+            END
+            
+            INSERT INTO dbo.LoginAudit (UserID, LoginStatus, LoginTime)
+            VALUES (@userId, 'Failed', GETDATE());
+            
+            RAISERROR('Wrong Password', 16, 1);
+            RETURN -4;
+        END
+    END TRY
+    BEGIN CATCH
+        SET @isValid = 0;
+        RAISERROR('unknown error ', 16, 1);
+        RETURN -999;
+    END CATCH
+END
+GO
+
+--------------------------------------------------------------------------------------------------------------
+
+CREATE OR ALTER PROCEDURE dbo.sp_UpdatePassword
+    @userId INT,
+    @oldPassword NVARCHAR(MAX),
+    @newPassword NVARCHAR(MAX)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @userName NVARCHAR(30);
+    DECLARE @isValid BIT;
+    DECLARE @hashedNewPassword NVARCHAR(MAX);
+    
+    BEGIN TRY
+        SELECT @userName = userName FROM dbo.UserAccounts WHERE userId = @userId;
+        
+        IF @userName IS NULL
+        BEGIN
+            RAISERROR('User not found', 16, 1);
+            RETURN -1;
+        END
+        
+        EXEC dbo.sp_VerifyPassword @userName, @oldPassword, @isValid OUTPUT;
+        
+        IF @isValid = 0
+        BEGIN
+            RAISERROR('Old PassWord Is Nor True', 16, 1);
+            RETURN -2;
+        END
+        
+        IF LEN(@newPassword) < 12
+        BEGIN
+            RAISERROR('The password must be at least 12 characters long.', 16, 1);
+            RETURN -3;
+        END
+        
+        EXEC dbo.sp_HashPassword @newPassword, @hashedNewPassword OUTPUT;
+        
+        UPDATE dbo.UserAccounts
+        SET userPasswordHash = @hashedNewPassword,
+            LastPasswordChange = GETDATE(),
+            FailedLoginAttempts = 0,
+            IsLocked = 0
+        WHERE userId = @userId;
+        
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
+        VALUES (@userId, 'UserAccounts', 'Password Changed', GETDATE());
+        
+        PRINT 'Password updated successfully';
+        RETURN 0;
+    END TRY
+    BEGIN CATCH
+        RAISERROR('Password update error', 16, 1);
+        RETURN -999;
+    END CATCH
+END
+GO
+
+--------------------------------------------------------------------------------------------------------------
+
+
+CREATE OR ALTER PROCEDURE dbo.sp_CreateSecureUser
+    @userName NVARCHAR(30),
+    @plainPassword NVARCHAR(MAX),
+    @userRole NVARCHAR(30)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @hashedPassword NVARCHAR(MAX);
+    DECLARE @userId INT;
+    
+    BEGIN TRY
+        IF EXISTS (SELECT 1 FROM dbo.UserAccounts WHERE userName = @userName)
+        BEGIN
+            RAISERROR('Username already exists', 16, 1);
+            RETURN -1;
+        END
+        
+        IF LEN(@plainPassword) < 12
+        BEGIN
+            RAISERROR('The password must be at least 12 characters long.', 16, 1);
+            RETURN -2;
+        END
+        
+        EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
+        
+        INSERT INTO dbo.UserAccounts (userName, userPassword, userPasswordHash, userRole, LastPasswordChange, FailedLoginAttempts, IsLocked)
+        VALUES (@userName, '***ENCRYPTED***', @hashedPassword, @userRole, GETDATE(), 0, 0);
+        
+        SET @userId = SCOPE_IDENTITY();
+        
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
+        VALUES (@userId, 'UserAccounts', 'User Created', GETDATE());
+        
+        PRINT 'User created ' + @userName + ' Successfully';
+        RETURN @userId;
+    END TRY
+    BEGIN CATCH
+        RAISERROR('Error creating user', 16, 1);
+        RETURN -999;
+    END CATCH
+END
+
+--------------------------------------------------------------------------------------------------------------
 
 
 
+CREATE OR ALTER PROCEDURE dbo.sp_CreateSecureUser
+    @userName NVARCHAR(30),
+    @plainPassword NVARCHAR(MAX),
+    @userRole NVARCHAR(30)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @hashedPassword NVARCHAR(MAX);
+    DECLARE @userId INT;
+    DECLARE @sql NVARCHAR(MAX);
+
+    BEGIN TRY
+        IF EXISTS (SELECT 1 FROM dbo.UserAccounts WHERE userName = @userName)
+        BEGIN
+            RAISERROR('Username already exists in the UserAccounts table.', 16, 1);
+            RETURN -1;
+        END
+
+        IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @userName)
+        BEGIN
+            RAISERROR('Login name already exists on the server.', 16, 1);
+            RETURN -2;
+        END
+
+        IF LEN(@plainPassword) < 12
+        BEGIN
+            RAISERROR('Password must be at least 12 characters long.', 16, 1);
+            RETURN -3;
+        END
+
+        SET @sql = N'CREATE LOGIN ' + QUOTENAME(@userName) + N' WITH PASSWORD = N''' + REPLACE(@plainPassword, '''', '''''') + N''';';
+        EXEC sp_executesql @sql;
+        PRINT 'Server login created successfully for: ' + @userName;
+
+        SET @sql = N'CREATE USER ' + QUOTENAME(@userName) + N' FOR LOGIN ' + QUOTENAME(@userName) + N';';
+        EXEC sp_executesql @sql;
+        PRINT 'Database user created successfully for: ' + @userName;
+
+        SET @sql = N'ALTER ROLE ' + QUOTENAME(@userRole) + N' ADD MEMBER ' + QUOTENAME(@userName) + N';';
+        EXEC sp_executesql @sql;
+        PRINT 'User ' + @userName + ' added to role ' + @userRole;
+
+        EXEC dbo.sp_HashPassword @plainPassword, @hashedPassword OUTPUT;
+
+        INSERT INTO dbo.UserAccounts (userName, userPassword, userPasswordHash, userRole, LastPasswordChange, FailedLoginAttempts, IsLocked)
+        VALUES (@userName, '***ENCRYPTED***', @hashedPassword, @userRole, GETDATE(), 0, 0);
+
+        SET @userId = SCOPE_IDENTITY();
+
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
+        VALUES (@userId, 'UserAccounts', 'User Created', GETDATE());
+
+        PRINT 'User ' + @userName + ' created successfully in both the table and on the server.';
+        RETURN @userId;
+    END TRY
+    BEGIN CATCH
+        IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name = @userName)
+        BEGIN
+            SET @sql = N'DROP LOGIN ' + QUOTENAME(@userName) + N';';
+            EXEC sp_executesql @sql;
+            PRINT 'Rolled back server login creation due to an error.';
+        END
+        
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        RAISERROR (@ErrorMessage, @ErrorSeverity, @ErrorState);
+        
+        RETURN -999;
+    END CATCH
+END
+GO
+
+
+--------------------------------------------------------------------------------------------------------------
+
+
+CREATE OR ALTER PROCEDURE dbo.sp_UnlockUserAccount
+    @UserID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @CurrentUserID INT;
+    
+    BEGIN TRY
+        SET @CurrentUserID = USER_ID(USER_NAME());
+        
+        IF NOT EXISTS (
+            SELECT 1 FROM dbo.UserAccounts 
+            WHERE UserID = @CurrentUserID AND Role = 'AdminRole'
+        )
+        BEGIN
+            RAISERROR('Unauthorized: Only admins can unlock accounts', 16, 1);
+            RETURN;
+        END
+        
+        UPDATE dbo.UserAccounts
+        SET 
+            IsLocked = 0,
+            LoginAttempts = 0,
+            LastModifiedDate = GETDATE()
+        WHERE UserID = @UserID;
+        
+        INSERT INTO dbo.DataChangeAudit 
+            (UserID, TableName, OperationType, RecordID, NewValues, ChangeTime)
+        VALUES 
+            (@CurrentUserID, 'UserAccounts', 'UPDATE', @UserID, 
+             'Account unlocked', GETDATE());
+        
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(255);
+        SET @ErrorMessage = ERROR_MESSAGE();
+        RAISERROR(@ErrorMessage, 16, 1);
+        RETURN;
+    END CATCH
+    
+END;
+GO
+
+--------------------------------------------------------------------------------------------------------------
+
+CREATE OR ALTER PROCEDURE dbo.sp_GetStudentExamsForStudent
+    @StudentID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @CurrentUserID INT;
+    DECLARE @CurrentUserRole NVARCHAR(100);
+
+    BEGIN TRY
+        SELECT 
+            @CurrentUserID = ua.userId, 
+            @CurrentUserRole = ua.userRole
+        FROM 
+            dbo.UserAccounts ua
+        WHERE 
+            ua.userName = SUSER_SNAME();
+
+        IF @CurrentUserRole = 'student' AND NOT EXISTS (SELECT 1 FROM dbo.Student WHERE studentId = @StudentID AND userId = @CurrentUserID)
+        BEGIN
+            RAISERROR('Unauthorized: You can only view your own exams.', 16, 1);
+            RETURN;
+        END
+
+        SELECT 
+            E.ExamID,
+            E.Name AS ExamName,
+            C.[Course Name] AS CourseName,
+            E.[Day] AS ExamDay,
+            E.StartTime,
+            E.EndTime,
+            (SELECT ISNULL(SUM(c.Degree), 0) FROM dbo.Contain c WHERE c.ExamID = E.ExamID) AS MaxDegree,
+            CASE 
+                WHEN EXISTS (SELECT 1 FROM dbo.StudentExam se WHERE se.StudentID = S.studentId AND se.ExamID = E.ExamID)
+                THEN 'Taken'
+                ELSE 'Available'
+            END AS ExamStatus
+        FROM 
+            dbo.Student AS S
+        JOIN 
+            dbo.Enrollments AS EN ON S.studentId = EN.StudentID
+        JOIN 
+            dbo.Exam AS E ON EN.CourseID = E.CourseID
+        JOIN 
+            dbo.Course AS C ON E.CourseID = C.CourseID
+        WHERE 
+            S.studentId = @StudentID
+        ORDER BY 
+            E.[Day] DESC, E.StartTime DESC;
+        
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        RAISERROR('An error occurred while fetching the student''s exams: %s', 16, 1, @ErrorMessage);
+        RETURN;
+    END CATCH
+END;
+GO
+
+PRINT 'Procedure sp_GetStudentExamsForStudent has been created successfully.';
+GO
+
+--------------------------------------------------------------------------------------------------------------
+
+
+
+CREATE OR ALTER PROCEDURE dbo.sp_GetStudentExamResults
+    @StudentID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @CurrentUserID INT;
+    DECLARE @CurrentUserRole NVARCHAR(100);
+
+    BEGIN TRY
+        SELECT 
+            @CurrentUserID = ua.userId, 
+            @CurrentUserRole = ua.userRole
+        FROM 
+            dbo.UserAccounts ua
+        WHERE 
+            ua.userName = SUSER_SNAME();
+
+        IF @CurrentUserRole = 'student' AND NOT EXISTS (SELECT 1 FROM dbo.Student WHERE studentId = @StudentID AND userId = @CurrentUserID)
+        BEGIN
+            RAISERROR('Unauthorized: You can only view your own results.', 16, 1);
+            RETURN;
+        END
+
+        SELECT 
+            C.[Course Name] AS CourseName,
+            E.Name AS ExamName,
+            (SELECT ISNULL(SUM(sa.studentDegree), 0) 
+             FROM dbo.StudentAnswer sa 
+             WHERE sa.studentId = S.studentId AND sa.examId = E.ExamID) AS StudentScore,
+            (SELECT ISNULL(SUM(c.Degree), 0) 
+             FROM dbo.Contain c 
+             WHERE c.ExamID = E.ExamID) AS MaxDegree,
+            E.[Day] AS ExamDay
+        FROM 
+            dbo.Student AS S
+        JOIN 
+            dbo.StudentExam AS SE ON S.studentId = SE.StudentID
+        JOIN 
+            dbo.Exam AS E ON SE.ExamID = E.ExamID
+        JOIN 
+            dbo.Course AS C ON E.CourseID = C.CourseID
+        WHERE 
+            S.studentId = @StudentID
+        ORDER BY 
+            E.[Day] DESC;
+        
+    END TRY
+    BEGIN CATCH
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        RAISERROR('An error occurred while fetching exam results: %s', 16, 1, @ErrorMessage);
+        RETURN;
+    END CATCH
+END;
+GO
+
+PRINT 'Procedure sp_GetStudentExamResults has been updated to show taken exams results successfully.';
+GO
 
 ---------------------------------------------------------------------------------------------------------------------------------------
 ---------------------------------------------------------------------------------------------------------------------------------------
@@ -2163,26 +2298,6 @@ end
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
 
-
-alter table [dbo].[Contain] drop column [StudentAnswer];
-
-create table StudentAnswer(
-studentId int not null,
-examId int not null,
-questionID int not null,
-studentAnswer nvarchar(max),
-studentDegree int default 0,
-
-constraint fk_studentId foreign key (studentId) references [dbo].[Student]([studentId]),
-constraint fk_examId foreign key (examId) references [dbo].[Exam]([ExamID]),
-constraint fk_questionID foreign key (questionID) references [dbo].[QuestionPool]([QuestionID]),
-constraint fk_examQuestion foreign key (examId, questionID)  references [dbo].[Contain](ExamID, QuestionID),
-
-constraint pk_StudentAnswer primary key (studentId,examId,questionID)
-)
-
-go 
-
 -- calculate student degree per question 
 create trigger trg_CalculateStudentDegree
 on [dbo].[StudentAnswer]
@@ -2249,6 +2364,311 @@ end
 
 end
 
+
+
+CREATE   TRIGGER [dbo].[trg_AutoCorrectStudentAnswers]
+ON [dbo].[StudentAnswer]
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF NOT EXISTS (SELECT 1 FROM inserted)
+    BEGIN
+        RETURN;
+    END
+
+   
+    UPDATE sa
+    SET 
+        sa.studentDegree = CASE 
+                               WHEN qp.QuestionType <> 'Text' AND 
+                                    LTRIM(RTRIM(LOWER(i.studentAnswer))) = LTRIM(RTRIM(LOWER(qp.CorrectAnswer)))
+                               THEN c.Degree 
+                               ELSE 0     
+                           END
+    FROM 
+        dbo.StudentAnswer AS sa
+    INNER JOIN 
+        inserted AS i ON sa.studentId = i.studentId AND sa.examId = i.examId AND sa.questionID = i.questionID 
+    INNER JOIN 
+        dbo.QuestionPool AS qp ON i.questionID = qp.QuestionID
+    INNER JOIN 
+        dbo.Contain AS c ON i.examId = c.ExamID AND i.questionID = c.QuestionID;
+
+    PRINT FORMATMESSAGE('Auto-correction trigger fired. %d row(s) processed.', @@ROWCOUNT);
+
+END
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+--MOHAMED
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+CREATE OR ALTER TRIGGER tr_SyncPasswordWithLogin
+ON dbo.UserAccounts
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @userName NVARCHAR(30);
+    DECLARE @hashedPassword NVARCHAR(MAX);
+    
+    SELECT @userName = userName, @hashedPassword = userPasswordHash
+    FROM inserted;
+    
+    IF UPDATE(userPasswordHash)
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, ChangeTime)
+        SELECT userId, 'UserAccounts', 'Password Synced with LOGIN', GETDATE()
+        FROM inserted;
+    END
+END
+GO
+
+
+CREATE OR ALTER TRIGGER tr_LogPasswordChanges
+ON dbo.UserAccounts
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    IF UPDATE(userPasswordHash)
+    BEGIN
+        INSERT INTO dbo.PasswordChangeHistory (UserID, OldPasswordHash, NewPasswordHash, ChangeTime)
+        SELECT 
+            i.userId,
+            d.userPasswordHash,
+            i.userPasswordHash,
+            GETDATE()
+        FROM inserted i
+        JOIN deleted d ON i.userId = d.userId;
+    END
+END
+
+
+CREATE OR ALTER TRIGGER tr_InstructorAudit
+ON dbo.Instructor
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    IF @@ROWCOUNT = 0
+        RETURN;
+    
+    DECLARE @OperationType NVARCHAR(20);
+    DECLARE @UserID INT;
+    
+    SET @UserID = USER_ID(USER_NAME());
+    
+    IF EXISTS (SELECT * FROM inserted) AND NOT EXISTS (SELECT * FROM deleted)
+        SET @OperationType = 'INSERT';
+    ELSE IF EXISTS (SELECT * FROM inserted) AND EXISTS (SELECT * FROM deleted)
+        SET @OperationType = 'UPDATE';
+    ELSE IF EXISTS (SELECT * FROM deleted) AND NOT EXISTS (SELECT * FROM inserted)
+        SET @OperationType = 'DELETE';
+    
+    INSERT INTO dbo.DataChangeAudit 
+        (UserID, TableName, OperationType, RecordID, NewValues, ChangeTime)
+    SELECT 
+        @UserID,
+        'Instructor',
+        @OperationType,
+        InstructorID,
+        'FullName: ' + ISNULL(FullName, '') + 
+        ', Email: ' + ISNULL(Email, '') +
+        ', ManagerID: ' + ISNULL(CAST(ManagerID AS NVARCHAR), ''),
+        GETDATE()
+    FROM inserted
+    WHERE @OperationType IN ('INSERT', 'UPDATE');
+    
+    IF @OperationType = 'DELETE'
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit 
+            (UserID, TableName, OperationType, RecordID, OldValues, ChangeTime)
+        SELECT 
+            @UserID,
+            'Instructor',
+            @OperationType,
+            InstructorID,
+            'FullName: ' + ISNULL(FullName, '') + 
+            ', Email: ' + ISNULL(Email, '') +
+            ', ManagerID: ' + ISNULL(CAST(ManagerID AS NVARCHAR), ''),
+            GETDATE()
+        FROM deleted;
+    END
+    
+END;
+GO
+
+
+exec [dbo].[sp_Manager_Student_Update] 1, 'omar', 'ahmed', 'omar.h@example.com', 1
+
+
+
+CREATE OR ALTER TRIGGER trg_Audit_Student_Changes
+ON dbo.Student
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @@ROWCOUNT = 0 RETURN;
+
+    DECLARE @ChangeType NVARCHAR(10);
+    DECLARE @CurrentUserID INT;
+
+
+    SELECT @CurrentUserID = userId 
+    FROM dbo.UserAccounts 
+    WHERE userName = SUSER_SNAME();
+
+    IF @CurrentUserID IS NULL
+    BEGIN
+        SET @CurrentUserID = 0; 
+    END
+
+    IF EXISTS (SELECT * FROM inserted) AND EXISTS (SELECT * FROM deleted)
+        SET @ChangeType = 'UPDATE';
+    ELSE IF EXISTS (SELECT * FROM inserted)
+        SET @ChangeType = 'INSERT';
+    ELSE
+        SET @ChangeType = 'DELETE';
+
+    IF @ChangeType IN ('INSERT', 'UPDATE')
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, OldValue, NewValue)
+        SELECT
+            @CurrentUserID,
+            'Student',
+            @ChangeType,
+            ISNULL('fname: ' + d.fname + ', lname: ' + d.lname + ', email: ' + d.email, 'N/A'),
+            'fname: ' + i.fname + ', lname: ' + i.lname + ', email: ' + i.email
+        FROM inserted i
+        LEFT JOIN deleted d ON i.studentId = d.studentId;
+    END
+
+    IF @ChangeType = 'DELETE'
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, OldValue, NewValue)
+        SELECT
+            @CurrentUserID,
+            'Student',
+            @ChangeType,
+            'fname: ' + d.fname + ', lname: ' + d.lname + ', email: ' + d.email,
+            NULL
+        FROM deleted d;
+    END
+END;
+
+
+
+CREATE OR ALTER TRIGGER trg_Audit_Instructor_Changes
+ON dbo.Instructor
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @@ROWCOUNT = 0 RETURN;
+
+    DECLARE @ChangeType NVARCHAR(10);
+    DECLARE @CurrentUserID INT;
+
+    SELECT @CurrentUserID = userId 
+    FROM dbo.UserAccounts 
+    WHERE userName = SUSER_SNAME();
+
+    IF @CurrentUserID IS NULL SET @CurrentUserID = 0;
+
+    IF EXISTS (SELECT * FROM inserted) AND EXISTS (SELECT * FROM deleted)
+        SET @ChangeType = 'UPDATE';
+    ELSE IF EXISTS (SELECT * FROM inserted)
+        SET @ChangeType = 'INSERT';
+    ELSE
+        SET @ChangeType = 'DELETE';
+
+    IF @ChangeType IN ('INSERT', 'UPDATE')
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, OldValue, NewValue)
+        SELECT
+            @CurrentUserID,
+            'Instructor',
+            @ChangeType,
+            ISNULL('FullName: ' + d.FullName + ', Email: ' + d.Email, 'N/A'),
+            'FullName: ' + i.FullName + ', Email: ' + i.Email
+        FROM inserted i
+        LEFT JOIN deleted d ON i.InstructorID = d.InstructorID;
+    END
+
+    IF @ChangeType = 'DELETE'
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, OldValue, NewValue)
+        SELECT
+            @CurrentUserID,
+            'Instructor',
+            @ChangeType,
+            'FullName: ' + d.FullName + ', Email: ' + d.Email,
+            NULL
+        FROM deleted d;
+    END
+END;
+GO
+
+CREATE OR ALTER TRIGGER trg_Audit_Course_Changes
+ON dbo.Course
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @@ROWCOUNT = 0 RETURN;
+
+    DECLARE @ChangeType NVARCHAR(10);
+    DECLARE @CurrentUserID INT;
+
+    SELECT @CurrentUserID = userId 
+    FROM dbo.UserAccounts 
+    WHERE userName = SUSER_SNAME();
+
+    IF @CurrentUserID IS NULL SET @CurrentUserID = 0;
+
+    IF EXISTS (SELECT * FROM inserted) AND EXISTS (SELECT * FROM deleted)
+        SET @ChangeType = 'UPDATE';
+    ELSE IF EXISTS (SELECT * FROM inserted)
+        SET @ChangeType = 'INSERT';
+    ELSE
+        SET @ChangeType = 'DELETE';
+
+    IF @ChangeType IN ('INSERT', 'UPDATE')
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, OldValue, NewValue)
+        SELECT
+            @CurrentUserID,
+            'Course',
+            @ChangeType,
+            ISNULL('Name: ' + d.[Course Name] + ', MaxDegree: ' + CAST(d.[Max Degree] AS VARCHAR(10)), 'N/A'),
+            'Name: ' + i.[Course Name] + ', MaxDegree: ' + CAST(i.[Max Degree] AS VARCHAR(10))
+        FROM inserted i
+        LEFT JOIN deleted d ON i.CourseID = d.CourseID;
+    END
+
+    IF @ChangeType = 'DELETE'
+    BEGIN
+        INSERT INTO dbo.DataChangeAudit (UserID, TableName, ChangeType, OldValue, NewValue)
+        SELECT
+            @CurrentUserID,
+            'Course',
+            @ChangeType,
+            'Name: ' + d.[Course Name] + ', MaxDegree: ' + CAST(d.[Max Degree] AS VARCHAR(10)),
+            NULL
+        FROM deleted d;
+    end
+
+
+
+
+
 --------------------views----------
 --------------------------------------------------------------------------------
 --------------------------------------------------------------------------------
@@ -2303,6 +2723,38 @@ join
     dbo.Exam AS E ON EN.CourseID = E.CourseID
 join
     dbo.Course AS C ON E.CourseID = C.CourseID;
+
+
+
+    CREATE OR ALTER VIEW dbo.vw_SafeUserAccounts
+AS
+SELECT 
+    userId,
+    userName,
+    userRole,
+    LastPasswordChange,
+    FailedLoginAttempts,
+    IsLocked
+FROM dbo.UserAccounts
+GO
+
+
+CREATE OR ALTER VIEW vw_StudentExams
+AS
+SELECT 
+    e.ExamID,
+    e.ExamName,
+    c.CourseName,
+    e.StartTime,
+    e.EndTime,
+    e.TotalTime,
+    e.MaxDegree
+FROM dbo.Exam e
+INNER JOIN dbo.Course c ON e.CourseID = c.CourseID
+INNER JOIN dbo.StudentExam se ON e.ExamID = se.ExamID
+WHERE se.StudentID = USER_ID(USER_NAME());
+GO
+
 
 -------------------------------------------------------------------------------------------------------------
 
@@ -2407,18 +2859,14 @@ select * from VW_ExamStudentResults;
 
 
 ------------------------------security--------------
--- =====================================================
 -- SQL SERVER SECURITY IMPLEMENTATION
 -- EXAMINATION SYSTEM DATABASE
--- =====================================================
 
 
 USE [ExaminationSystem]
 GO
 
--- =====================================================
 -- 1. DATABASE-LEVEL SECURITY CONFIGURATION
--- =====================================================
 
 ALTER DATABASE [ExaminationSystem] SET TRUSTWORTHY OFF;
 ALTER DATABASE [ExaminationSystem] SET DB_CHAINING OFF;
@@ -2569,19 +3017,6 @@ DENY SELECT ON dbo.Student TO StudentRole;
 GO
 
 
-
-CREATE FUNCTION dbo.fn_HashPassword(@Password NVARCHAR(255))
-RETURNS NVARCHAR(255)
-AS
-BEGIN
-    DECLARE @HashedPassword NVARCHAR(255);
-    SET @HashedPassword = CONVERT(VARCHAR(255), 
-        HASHBYTES('SHA2_256', @Password), 2);
-    RETURN @HashedPassword;
-END;
-GO
-
-
 IF NOT EXISTS (SELECT * FROM sys.columns 
     WHERE OBJECT_ID = OBJECT_ID('dbo.UserAccounts') 
     AND name = 'PasswordHash')
@@ -2633,711 +3068,6 @@ END;
 GO
 
 
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LoginAudit')
-BEGIN
-    CREATE TABLE dbo.LoginAudit (
-        AuditID INT PRIMARY KEY IDENTITY(1,1),
-        UserID INT,
-        UserName NVARCHAR(100),
-        LoginTime DATETIME DEFAULT GETDATE(),
-        LogoutTime DATETIME NULL,
-        IPAddress NVARCHAR(50),
-        IsSuccessful BIT,
-        FailureReason NVARCHAR(255),
-        CONSTRAINT FK_LoginAudit_UserAccounts 
-            FOREIGN KEY (UserID) 
-            REFERENCES dbo.UserAccounts(UserID)
-    );
-END;
-GO
-
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'DataChangeAudit')
-BEGIN
-    CREATE TABLE dbo.DataChangeAudit (
-        AuditID INT PRIMARY KEY IDENTITY(1,1),
-        UserID INT,
-        TableName NVARCHAR(100),
-        OperationType NVARCHAR(20), -- INSERT, UPDATE, DELETE
-        RecordID INT,
-        OldValues NVARCHAR(MAX),
-        NewValues NVARCHAR(MAX),
-        ChangeTime DATETIME DEFAULT GETDATE(),
-        CONSTRAINT FK_DataChangeAudit_UserAccounts 
-            FOREIGN KEY (UserID) 
-            REFERENCES dbo.UserAccounts(UserID)
-    );
-END;
-GO
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_ValidateUserLogin
-    @UserName NVARCHAR(100),
-    @Password NVARCHAR(255),
-    @IsValid BIT OUTPUT,
-    @UserID INT OUTPUT,
-    @UserRole NVARCHAR(100) OUTPUT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @StoredHash NVARCHAR(255);
-    DECLARE @InputHash NVARCHAR(255);
-    DECLARE @MaxLoginAttempts INT = 5;
-    
-    SET @InputHash = dbo.fn_HashPassword(@Password);
-    
- 
-    SELECT 
-        @UserID = UserID,
-        @StoredHash = PasswordHash,
-        @UserRole = Role,
-        @IsValid = CASE 
-            WHEN IsLocked = 1 THEN 0
-            WHEN PasswordHash = @InputHash THEN 1
-            ELSE 0
-        END
-    FROM dbo.UserAccounts
-    WHERE UserName = @UserName;
-    
-    IF @IsValid = 0 AND EXISTS (
-        SELECT 1 FROM dbo.UserAccounts 
-        WHERE UserName = @UserName AND IsLocked = 1
-    )
-    BEGIN
-        INSERT INTO dbo.LoginAudit 
-            (UserID, UserName, IsSuccessful, FailureReason)
-        VALUES 
-            (@UserID, @UserName, 0, 'Account is locked');
-        
-        SET @IsValid = 0;
-        RETURN;
-    END
-    
-    IF @IsValid = 1
-    BEGIN
-        UPDATE dbo.UserAccounts
-        SET 
-            LastLoginDate = GETDATE(),
-            LoginAttempts = 0,
-            LastModifiedDate = GETDATE()
-        WHERE UserID = @UserID;
-        
-        INSERT INTO dbo.LoginAudit 
-            (UserID, UserName, IsSuccessful, FailureReason)
-        VALUES 
-            (@UserID, @UserName, 1, NULL);
-    END
-    ELSE
-    BEGIN
-        UPDATE dbo.UserAccounts
-        SET LoginAttempts = LoginAttempts + 1,
-            IsLocked = CASE 
-                WHEN (LoginAttempts + 1) >= @MaxLoginAttempts THEN 1
-                ELSE 0
-            END,
-            LastModifiedDate = GETDATE()
-        WHERE UserName = @UserName;
-        
-        INSERT INTO dbo.LoginAudit 
-            (UserID, UserName, IsSuccessful, FailureReason)
-        VALUES 
-            (@UserID, @UserName, 0, 'Invalid password');
-    END
-    
-END;
-GO
-
-
-
-CREATE OR ALTER TRIGGER tr_InstructorAudit
-ON dbo.Instructor
-AFTER INSERT, UPDATE, DELETE
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    IF @@ROWCOUNT = 0
-        RETURN;
-    
-    DECLARE @OperationType NVARCHAR(20);
-    DECLARE @UserID INT;
-    
-    SET @UserID = USER_ID(USER_NAME());
-    
-    IF EXISTS (SELECT * FROM inserted) AND NOT EXISTS (SELECT * FROM deleted)
-        SET @OperationType = 'INSERT';
-    ELSE IF EXISTS (SELECT * FROM inserted) AND EXISTS (SELECT * FROM deleted)
-        SET @OperationType = 'UPDATE';
-    ELSE IF EXISTS (SELECT * FROM deleted) AND NOT EXISTS (SELECT * FROM inserted)
-        SET @OperationType = 'DELETE';
-    
-    INSERT INTO dbo.DataChangeAudit 
-        (UserID, TableName, OperationType, RecordID, NewValues, ChangeTime)
-    SELECT 
-        @UserID,
-        'Instructor',
-        @OperationType,
-        InstructorID,
-        'FullName: ' + ISNULL(FullName, '') + 
-        ', Email: ' + ISNULL(Email, '') +
-        ', ManagerID: ' + ISNULL(CAST(ManagerID AS NVARCHAR), ''),
-        GETDATE()
-    FROM inserted
-    WHERE @OperationType IN ('INSERT', 'UPDATE');
-    
-    IF @OperationType = 'DELETE'
-    BEGIN
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, OperationType, RecordID, OldValues, ChangeTime)
-        SELECT 
-            @UserID,
-            'Instructor',
-            @OperationType,
-            InstructorID,
-            'FullName: ' + ISNULL(FullName, '') + 
-            ', Email: ' + ISNULL(Email, '') +
-            ', ManagerID: ' + ISNULL(CAST(ManagerID AS NVARCHAR), ''),
-            GETDATE()
-        FROM deleted;
-    END
-    
-END;
-GO
-
-
-CREATE OR ALTER TRIGGER tr_StudentAudit
-ON dbo.Student
-AFTER INSERT, UPDATE, DELETE
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    IF @@ROWCOUNT = 0
-        RETURN;
-    
-    DECLARE @OperationType NVARCHAR(20);
-    DECLARE @UserID INT;
-    
-    SET @UserID = USER_ID(USER_NAME());
-    
-    IF EXISTS (SELECT * FROM inserted) AND NOT EXISTS (SELECT * FROM deleted)
-        SET @OperationType = 'INSERT';
-    ELSE IF EXISTS (SELECT * FROM inserted) AND EXISTS (SELECT * FROM deleted)
-        SET @OperationType = 'UPDATE';
-    ELSE
-        SET @OperationType = 'DELETE';
-    
-    INSERT INTO dbo.DataChangeAudit 
-        (UserID, TableName, OperationType, RecordID, NewValues, ChangeTime)
-    SELECT 
-        @UserID,
-        'Student',
-        @OperationType,
-        StudentID,
-        'StudentName: ' + ISNULL(StudentName, '') + 
-        ', Email: ' + ISNULL(Email, '') +
-        ', BranchID: ' + ISNULL(CAST(BranchID AS NVARCHAR), ''),
-        GETDATE()
-    FROM inserted
-    WHERE @OperationType IN ('INSERT', 'UPDATE');
-    
-END;
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_SecureInsertQuestion
-    @CourseID INT,
-    @QuestionText NVARCHAR(MAX),
-    @QuestionType NVARCHAR(50),
-    @CorrectAnswer NVARCHAR(MAX),
-    @InstructorID INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @CurrentUserID INT;
-    DECLARE @UserRole NVARCHAR(100);
-    DECLARE @InstructorForUser INT;
-    
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        SELECT @UserRole = Role 
-        FROM dbo.UserAccounts 
-        WHERE UserID = @CurrentUserID;
-        
-        IF @UserRole NOT IN ('Instructor', 'Admin', 'TrainingManager')
-        BEGIN
-            RAISERROR('Unauthorized: You do not have permission to add questions', 16, 1);
-            RETURN;
-        END
-        
-        IF @UserRole = 'Instructor'
-        BEGIN
-            SELECT @InstructorForUser = UserID 
-            FROM dbo.Instructor 
-            WHERE InstructorID = @InstructorID;
-            
-            IF @InstructorForUser <> @CurrentUserID
-            BEGIN
-                RAISERROR('Unauthorized: You can only add questions for your own courses', 16, 1);
-                RETURN;
-            END
-            
-            IF NOT EXISTS (
-                SELECT 1 FROM dbo.InstructorCourses 
-                WHERE InstructorID = @InstructorID AND CourseID = @CourseID
-            )
-            BEGIN
-                RAISERROR('Unauthorized: You do not teach this course', 16, 1);
-                RETURN;
-            END
-        END
-        
-        IF LEN(LTRIM(RTRIM(@QuestionText))) = 0
-        BEGIN
-            RAISERROR('Question text cannot be empty', 16, 1);
-            RETURN;
-        END
-        
-        IF @QuestionType NOT IN ('MultipleChoice', 'TrueOrFalse', 'Text')
-        BEGIN
-            RAISERROR('Invalid question type', 16, 1);
-            RETURN;
-        END
-        
-        INSERT INTO dbo.Question (
-            CourseID, QuestionText, QuestionType, CorrectAnswer, InstructorID
-        )
-        VALUES (
-            @CourseID, @QuestionText, @QuestionType, @CorrectAnswer, @InstructorID
-        );
-        
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, OperationType, NewValues, ChangeTime)
-        VALUES 
-            (@CurrentUserID, 'Question', 'INSERT', 
-             'CourseID: ' + CAST(@CourseID AS NVARCHAR) + 
-             ', Type: ' + @QuestionType, GETDATE());
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-
-
-CREATE OR ALTER VIEW vw_StudentExams
-AS
-SELECT 
-    e.ExamID,
-    e.ExamName,
-    c.CourseName,
-    e.StartTime,
-    e.EndTime,
-    e.TotalTime,
-    e.MaxDegree
-FROM dbo.Exam e
-INNER JOIN dbo.Course c ON e.CourseID = c.CourseID
-INNER JOIN dbo.StudentExam se ON e.ExamID = se.ExamID
-WHERE se.StudentID = USER_ID(USER_NAME());
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_SecureSubmitExamAnswer
-    @StudentExamID INT,
-    @QuestionID INT,
-    @StudentAnswer NVARCHAR(MAX)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @StudentID INT;
-    DECLARE @CurrentUserID INT;
-    DECLARE @ExamID INT;
-    DECLARE @ExamEndTime DATETIME;
-    DECLARE @CurrentTime DATETIME;
-    
-    BEGIN TRY
-        SET @CurrentTime = GETDATE();
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        SELECT @StudentID = UserID 
-        FROM dbo.Student 
-        WHERE UserID = @CurrentUserID;
-        
-        SELECT @ExamID = ExamID 
-        FROM dbo.StudentExam 
-        WHERE StudentExamID = @StudentExamID 
-        AND StudentID = @StudentID;
-        
-        IF @ExamID IS NULL
-        BEGIN
-            RAISERROR('Unauthorized: You cannot submit answers for this exam', 16, 1);
-            RETURN;
-        END
-        
-        SELECT @ExamEndTime = EndTime 
-        FROM dbo.Exam 
-        WHERE ExamID = @ExamID;
-        
-        IF @CurrentTime > @ExamEndTime
-        BEGIN
-            RAISERROR('Exam submission time has expired', 16, 1);
-            RETURN;
-        END
-        
-        IF LEN(LTRIM(RTRIM(@StudentAnswer))) = 0
-        BEGIN
-            RAISERROR('Answer cannot be empty', 16, 1);
-            RETURN;
-        END
-        
-        INSERT INTO dbo.StudentAnswer (
-            StudentExamID, QuestionID, Answer, SubmissionTime
-        )
-        VALUES (
-            @StudentExamID, @QuestionID, @StudentAnswer, @CurrentTime
-        );
-        
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, OperationType, NewValues, ChangeTime)
-        VALUES 
-            (@StudentID, 'StudentAnswer', 'INSERT', 
-             'ExamID: ' + CAST(@ExamID AS NVARCHAR), @CurrentTime);
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_ChangeUserPassword
-    @UserID INT,
-    @OldPassword NVARCHAR(255),
-    @NewPassword NVARCHAR(255),
-    @ConfirmPassword NVARCHAR(255)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @CurrentUserID INT;
-    DECLARE @StoredHash NVARCHAR(255);
-    DECLARE @OldPasswordHash NVARCHAR(255);
-    
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        IF @CurrentUserID <> @UserID
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM dbo.UserAccounts 
-                WHERE UserID = @CurrentUserID AND Role = 'Admin'
-            )
-            BEGIN
-                RAISERROR('Unauthorized: You can only change your own password', 16, 1);
-                RETURN;
-            END
-        END
-        
-        IF @NewPassword <> @ConfirmPassword
-        BEGIN
-            RAISERROR('New passwords do not match', 16, 1);
-            RETURN;
-        END
-        
-        IF LEN(@NewPassword) < 8
-        BEGIN
-            RAISERROR('Password must be at least 8 characters long', 16, 1);
-            RETURN;
-        END
-        
-        IF NOT (@NewPassword LIKE '%[A-Z]%' AND 
-                @NewPassword LIKE '%[a-z]%' AND 
-                @NewPassword LIKE '%[0-9]%')
-        BEGIN
-            RAISERROR('Password must contain uppercase, lowercase, and numbers', 16, 1);
-            RETURN;
-        END
-        
-        IF @CurrentUserID = @UserID
-        BEGIN
-            SET @OldPasswordHash = dbo.fn_HashPassword(@OldPassword);
-            
-            SELECT @StoredHash = PasswordHash 
-            FROM dbo.UserAccounts 
-            WHERE UserID = @UserID;
-            
-            IF @StoredHash <> @OldPasswordHash
-            BEGIN
-                RAISERROR('Invalid old password', 16, 1);
-                RETURN;
-            END
-        END
-        
-        UPDATE dbo.UserAccounts
-        SET 
-            PasswordHash = dbo.fn_HashPassword(@NewPassword),
-            LoginAttempts = 0,
-            IsLocked = 0,
-            LastModifiedDate = GETDATE()
-        WHERE UserID = @UserID;
-        
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, OperationType, RecordID, NewValues, ChangeTime)
-        VALUES 
-            (@CurrentUserID, 'UserAccounts', 'UPDATE', @UserID, 
-             'Password changed', GETDATE());
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_UnlockUserAccount
-    @UserID INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @CurrentUserID INT;
-    
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        IF NOT EXISTS (
-            SELECT 1 FROM dbo.UserAccounts 
-            WHERE UserID = @CurrentUserID AND Role = 'Admin'
-        )
-        BEGIN
-            RAISERROR('Unauthorized: Only admins can unlock accounts', 16, 1);
-            RETURN;
-        END
-        
-        UPDATE dbo.UserAccounts
-        SET 
-            IsLocked = 0,
-            LoginAttempts = 0,
-            LastModifiedDate = GETDATE()
-        WHERE UserID = @UserID;
-        
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, OperationType, RecordID, NewValues, ChangeTime)
-        VALUES 
-            (@CurrentUserID, 'UserAccounts', 'UPDATE', @UserID, 
-             'Account unlocked', GETDATE());
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_ViewAuditLogs
-    @LogType NVARCHAR(20) = 'LOGIN',
-    @Days INT = 7
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @CurrentUserID INT;
-    
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        IF NOT EXISTS (
-            SELECT 1 FROM dbo.UserAccounts 
-            WHERE UserID = @CurrentUserID AND Role = 'Admin'
-        )
-        BEGIN
-            RAISERROR('Unauthorized: Only admins can view audit logs', 16, 1);
-            RETURN;
-        END
-        
-        IF @LogType = 'LOGIN'
-        BEGIN
-            SELECT 
-                AuditID,
-                UserName,
-                LoginTime,
-                IsSuccessful,
-                FailureReason
-            FROM dbo.LoginAudit
-            WHERE LoginTime >= DATEADD(DAY, -@Days, GETDATE())
-            ORDER BY LoginTime DESC;
-        END
-        
-        ELSE IF @LogType = 'DATA_CHANGE'
-        BEGIN
-            SELECT 
-                AuditID,
-                UserID,
-                TableName,
-                OperationType,
-                RecordID,
-                NewValues,
-                ChangeTime
-            FROM dbo.DataChangeAudit
-            WHERE ChangeTime >= DATEADD(DAY, -@Days, GETDATE())
-            ORDER BY ChangeTime DESC;
-        END
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_CreateDatabaseBackup
-    @BackupPath NVARCHAR(256)
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @CurrentUserID INT;
-    DECLARE @BackupFile NVARCHAR(256);
-    DECLARE @CurrentDate NVARCHAR(20);
-    
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        IF NOT EXISTS (
-            SELECT 1 FROM dbo.UserAccounts 
-            WHERE UserID = @CurrentUserID AND Role = 'Admin'
-        )
-        BEGIN
-            RAISERROR('Unauthorized: Only admins can create backups', 16, 1);
-            RETURN;
-        END
-        
-        SET @CurrentDate = FORMAT(GETDATE(), 'yyyyMMdd_HHmmss');
-        SET @BackupFile = @BackupPath + 'ExaminationSystem_' + @CurrentDate + '.bak';
-        
-        BACKUP DATABASE [ExaminationSystem]
-        TO DISK = @BackupFile
-        WITH INIT, COMPRESS, STATS = 10;
-        
-        INSERT INTO dbo.DataChangeAudit 
-            (UserID, TableName, OperationType, NewValues, ChangeTime)
-        VALUES 
-            (@CurrentUserID, 'System', 'BACKUP', 
-             'Backup created at: ' + @BackupFile, GETDATE());
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-CREATE OR ALTER TRIGGER tr_EncryptSensitiveData
-ON dbo.UserAccounts
-AFTER INSERT, UPDATE
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    IF @@ROWCOUNT = 0
-        RETURN;
-  
-    
-    UPDATE dbo.UserAccounts
-    SET LastModifiedDate = GETDATE()
-    WHERE UserID IN (SELECT UserID FROM inserted);
-    
-END;
-GO
-
-
-
-CREATE OR ALTER PROCEDURE dbo.sp_GetStudentExamResults
-    @StudentID INT,
-    @StudentUserID INT
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @CurrentUserID INT;
-    DECLARE @UserRole NVARCHAR(100);
-    
-    BEGIN TRY
-        SET @CurrentUserID = USER_ID(USER_NAME());
-        
-        SELECT @UserRole = Role 
-        FROM dbo.UserAccounts 
-        WHERE UserID = @CurrentUserID;
-        
-        IF @UserRole = 'Student' AND @CurrentUserID <> @StudentUserID
-        BEGIN
-            RAISERROR('Unauthorized: You can only view your own results', 16, 1);
-            RETURN;
-        END
-        
-        SELECT 
-            c.CourseName,
-            e.ExamName,
-            se.TotalScore,
-            e.MaxDegree,
-            se.SubmissionDate
-        FROM dbo.StudentExam se
-        INNER JOIN dbo.Exam e ON se.ExamID = e.ExamID
-        INNER JOIN dbo.Course c ON e.CourseID = c.CourseID
-        WHERE se.StudentID = @StudentID
-        ORDER BY se.SubmissionDate DESC;
-        
-    END TRY
-    BEGIN CATCH
-        DECLARE @ErrorMessage NVARCHAR(255);
-        SET @ErrorMessage = ERROR_MESSAGE();
-        RAISERROR(@ErrorMessage, 16, 1);
-        RETURN;
-    END CATCH
-    
-END;
-GO
-
-
 GRANT EXECUTE ON dbo.sp_ChangeUserPassword TO AdminRole;
 GRANT EXECUTE ON dbo.sp_ChangeUserPassword TO TrainingManagerRole;
 GRANT EXECUTE ON dbo.sp_ChangeUserPassword TO InstructorRole;
@@ -3375,14 +3105,10 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_DataChangeAudit_UserID
     ON dbo.DataChangeAudit(UserID);
 GO
 
--- =====================================================
 -- 28. DOCUMENT ACCOUNTS AND PASSWORDS
--- =====================================================
 
 /*
-==================================================
 DATABASE SECURITY ACCOUNTS AND CREDENTIALS
-==================================================
 
 1. ADMIN ACCOUNT:
    Login Name: AdminUser
@@ -3412,26 +3138,24 @@ DATABASE SECURITY ACCOUNTS AND CREDENTIALS
    Permissions: Take exams, view results
    Responsibilities: Exam participation, result viewing
 
-==================================================
-SECURITY FEATURES IMPLEMENTED:
-==================================================
-✓ Login and Database Users Created
-✓ Role-Based Access Control (RBAC)
-✓ Password Hashing with SHA2_256
-✓ Login Attempt Tracking
-✓ Account Locking After Failed Attempts
-✓ Audit Logging (Login and Data Changes)
-✓ Stored Procedures with Security Checks
-✓ SQL Injection Prevention (Parameterized Queries)
-✓ Data Isolation by User Role
-✓ Triggers for Data Audit
-✓ Function for Password Hashing
-✓ Backup and Recovery Procedures
-✓ Unauthorized Access Prevention
+----SECURITY FEATURES IMPLEMENTED:
 
-==================================================
-IMPORTANT SECURITY NOTES:
-==================================================
+ Login and Database Users Created
+ Role-Based Access Control (RBAC)
+ Password Hashing with SHA2_256
+ Login Attempt Tracking
+ Account Locking After Failed Attempts
+ Audit Logging (Login and Data Changes)
+ Stored Procedures with Security Checks
+ SQL Injection Prevention (Parameterized Queries)
+ Data Isolation by User Role
+ Triggers for Data Audit
+ Function for Password Hashing
+ Backup and Recovery Procedures
+ Unauthorized Access Prevention
+
+--IMPORTANT SECURITY NOTES:
+
 1. Change all default passwords immediately
 2. Store passwords securely using a password manager
 3. Enable SSL/TLS for database connections
@@ -3445,9 +3169,7 @@ IMPORTANT SECURITY NOTES:
 
 */
 
--- =====================================================
 -- 29. VERIFY SECURITY SETUP
--- =====================================================
 
 PRINT '=== DATABASE USERS ===';
 SELECT name AS UserName, type_desc AS UserType
@@ -3455,16 +3177,12 @@ FROM sys.database_principals
 WHERE type IN ('U', 'R')
 ORDER BY name;
 
-PRINT '';
-PRINT '=== ROLE MEMBERSHIP ===';
 SELECT DP1.name AS RoleName, DP2.name AS MemberName
 FROM sys.database_principals DP1
 INNER JOIN sys.database_role_members DRM ON DP1.principal_id = DRM.role_principal_id
 INNER JOIN sys.database_principals DP2 ON DRM.member_principal_id = DP2.principal_id
 ORDER BY DP1.name, DP2.name;
 
-PRINT '';
-PRINT '=== TABLE PERMISSIONS ===';
 SELECT 
     OBJECT_NAME(major_id) AS TableName,
     grantee_principal_id,
@@ -3474,10 +3192,7 @@ FROM sys.database_permissions
 WHERE class = 1
 ORDER BY OBJECT_NAME(major_id);
 
-GO
 
-PRINT ' Security implementation completed successfully!';
-GO
 
 
 
